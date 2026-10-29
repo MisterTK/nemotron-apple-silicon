@@ -1,0 +1,401 @@
+diff --git a/ggml/src/ggml-metal/ggml-metal-device.cpp b/ggml/src/ggml-metal/ggml-metal-device.cpp
+index 25a8a3ef6..3eea28fbe 100644
+--- a/ggml/src/ggml-metal/ggml-metal-device.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-device.cpp
+@@ -1740,12 +1740,12 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_top_k_merge(ggml
+ }
+ 
+ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_topk_moe(
+-        ggml_metal_library_t lib, int32_t n_expert, int32_t top_k, bool with_norm) {
++        ggml_metal_library_t lib, int32_t n_expert, int32_t top_k, bool with_norm, bool sigmoid) {
+     char base[256];
+     char name[256];
+ 
+     snprintf(base, 256, "kernel_topk_moe_f32");
+-    snprintf(name, 256, "%s_n_expert=%d_top_k=%d_with_norm=%d", base, n_expert, top_k, with_norm ? 1 : 0);
++    snprintf(name, 256, "%s_n_expert=%d_top_k=%d_with_norm=%d_sigmoid=%d", base, n_expert, top_k, with_norm ? 1 : 0, sigmoid ? 1 : 0);
+ 
+     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+     if (!res.pipeline) {
+@@ -1753,6 +1753,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_topk_moe(
+         ggml_metal_cv_set_bool (cv, with_norm, FC_TOPK_MOE + 0);
+         ggml_metal_cv_set_int32(cv, n_expert,  FC_TOPK_MOE + 1);
+         ggml_metal_cv_set_int32(cv, top_k,     FC_TOPK_MOE + 2);
++        ggml_metal_cv_set_bool (cv, sigmoid,   FC_TOPK_MOE + 3);
+ 
+         res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
+ 
+diff --git a/ggml/src/ggml-metal/ggml-metal-device.h b/ggml/src/ggml-metal/ggml-metal-device.h
+index dd7cdb958..69df420b8 100644
+--- a/ggml/src/ggml-metal/ggml-metal-device.h
++++ b/ggml/src/ggml-metal/ggml-metal-device.h
+@@ -154,7 +154,7 @@ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_fwht
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_top_k             (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_top_k_radix       (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_top_k_merge       (ggml_metal_library_t lib, const struct ggml_tensor * op);
+-struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_topk_moe          (ggml_metal_library_t lib, int32_t n_expert, int32_t top_k, bool with_norm);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_topk_moe          (ggml_metal_library_t lib, int32_t n_expert, int32_t top_k, bool with_norm, bool sigmoid);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_moe_reduce        (ggml_metal_library_t lib, int32_t n_expert_used);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_bin               (ggml_metal_library_t lib, const struct ggml_tensor * op, int32_t n_fuse);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_bin_one           (ggml_metal_library_t lib, enum ggml_op op);
+diff --git a/ggml/src/ggml-metal/ggml-metal-fusion.cpp b/ggml/src/ggml-metal/ggml-metal-fusion.cpp
+index 020cad29d..1e90fcf56 100644
+--- a/ggml/src/ggml-metal/ggml-metal-fusion.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-fusion.cpp
+@@ -500,6 +500,131 @@ static bool ggml_metal_fusion_check_topk_moe(
+     return true;
+ }
+ 
++// SIGMOID + ADD(selection bias) + ARGSORT + GET_ROWS of the unbiased probs + norm (plus optional scale).
++// DeepSeek-V3 style routing (Nemotron-H MoE, GLM, ...): the top-k ranks sigmoid + bias, the gathered
++// routing weights are the unbiased sigmoid values.
++static const std::vector<ggml_op> ops_topk_moe_sigmoid_norm = {
++    GGML_OP_UNARY, GGML_OP_RESHAPE, GGML_OP_ADD, GGML_OP_ARGSORT, GGML_OP_VIEW, GGML_OP_GET_ROWS,
++    GGML_OP_RESHAPE, GGML_OP_SUM_ROWS, GGML_OP_CLAMP, GGML_OP_DIV, GGML_OP_RESHAPE
++};
++static const std::vector<ggml_op> ops_topk_moe_sigmoid_norm_scale = {
++    GGML_OP_UNARY, GGML_OP_RESHAPE, GGML_OP_ADD, GGML_OP_ARGSORT, GGML_OP_VIEW, GGML_OP_GET_ROWS,
++    GGML_OP_RESHAPE, GGML_OP_SUM_ROWS, GGML_OP_CLAMP, GGML_OP_DIV, GGML_OP_RESHAPE, GGML_OP_SCALE
++};
++
++static bool ggml_metal_fusion_check_topk_moe_sigmoid(
++        const ggml_metal_fusion       * fusion,
++        const ggml_tensor * const     * nodes,
++        const ggml_cgraph             * gf,
++        const int                     * node_idxs,
++              int                       idx,
++              ggml_metal_fusion_mode    mode) {
++    GGML_UNUSED(nodes);
++
++    const std::vector<ggml_op> & ops_all = fusion->ops_all;
++    const bool with_scale = ops_all.back() == GGML_OP_SCALE;
++
++    const int raw_start = node_idxs[idx];
++    int       raw_end   = node_idxs[idx + (int) fusion->ops.size() - 1];
++
++    // without the scale the chain ends with a RESHAPE that the non-empty sequence filters out
++    if (!with_scale) {
++        if (raw_end + 1 >= gf->n_nodes) {
++            return false;
++        }
++        const ggml_tensor * trailing_reshape = gf->nodes[raw_end + 1];
++        if (trailing_reshape->op != GGML_OP_RESHAPE || trailing_reshape->src[0] != gf->nodes[raw_end]) {
++            return false;
++        }
++        raw_end++;
++    }
++
++    const int raw_count = raw_end - raw_start + 1;
++    if (raw_count != (int) ops_all.size()) {
++        return false;
++    }
++
++    int raw_idxs[GGML_METAL_FUSION_MAX];
++    for (int i = 0; i < raw_count; ++i) {
++        raw_idxs[i] = raw_start + i;
++        if (gf->nodes[raw_start + i]->op != ops_all[i]) {
++            return false;
++        }
++    }
++
++    const ggml_tensor * sigmoid          = gf->nodes[raw_start + 0];
++    const ggml_tensor * probs_reshaped   = gf->nodes[raw_start + 1];
++    const ggml_tensor * biased           = gf->nodes[raw_start + 2];
++    const ggml_tensor * argsort          = gf->nodes[raw_start + 3];
++    const ggml_tensor * ids              = gf->nodes[raw_start + 4];
++    const ggml_tensor * get_rows         = gf->nodes[raw_start + 5];
++    const ggml_tensor * weights_reshaped = gf->nodes[raw_start + 6];
++    const ggml_tensor * sum_rows         = gf->nodes[raw_start + 7];
++    const ggml_tensor * clamp            = gf->nodes[raw_start + 8];
++    const ggml_tensor * div              = gf->nodes[raw_start + 9];
++    const ggml_tensor * out_reshaped     = gf->nodes[raw_start + 10];
++    const ggml_tensor * out              = gf->nodes[raw_end];
++    const ggml_tensor * logits           = sigmoid->src[0];
++    const ggml_tensor * bias             = biased->src[0] == sigmoid ? biased->src[1] : biased->src[0];
++
++    if (ggml_get_unary_op(sigmoid) != GGML_UNARY_OP_SIGMOID) {
++        return false;
++    }
++
++    if (logits->type != GGML_TYPE_F32 || sigmoid->type != GGML_TYPE_F32 || bias->type != GGML_TYPE_F32 ||
++        out->type != GGML_TYPE_F32 || ids->type != GGML_TYPE_I32) {
++        return false;
++    }
++
++    const int64_t n_expert      = logits->ne[0];
++    const int64_t n_tokens      = logits->ne[1];
++    const int64_t n_expert_used = ids->ne[0];
++
++    if (n_expert <= 0 || n_expert_used <= 0 || n_expert_used > n_expert ||
++        n_expert > GGML_METAL_TOPK_MOE_MAX_EXPERTS || n_expert_used > GGML_METAL_TOPK_MOE_MAX_EXPERTS) {
++        return false;
++    }
++
++    if (logits->ne[2] != 1 || logits->ne[3] != 1 ||
++        bias->ne[0] != n_expert || ggml_nelements(bias) != n_expert || !ggml_is_contiguous(bias) ||
++        ids->ne[1] != n_tokens || ids->ne[2] != 1 || ids->ne[3] != 1 ||
++        out->ne[0] != 1 || out->ne[1] != n_expert_used || out->ne[2] != n_tokens || out->ne[3] != 1) {
++        return false;
++    }
++
++    if (!ggml_is_contiguous(logits) || !ggml_is_contiguous(out) ||
++        ids->nb[0] != ggml_type_size(GGML_TYPE_I32) ||
++        ids->nb[1] != ggml_type_size(GGML_TYPE_I32) * n_expert) {
++        return false;
++    }
++
++    if (probs_reshaped->src[0] != sigmoid || (biased->src[0] != sigmoid && biased->src[1] != sigmoid) ||
++        argsort->src[0] != biased || ids->src[0] != argsort ||
++        get_rows->src[0] != probs_reshaped || get_rows->src[1] != ids ||
++        weights_reshaped->src[0] != get_rows || sum_rows->src[0] != weights_reshaped ||
++        clamp->src[0] != sum_rows || div->src[0] != weights_reshaped || div->src[1] != clamp ||
++        out_reshaped->src[0] != div) {
++        return false;
++    }
++
++    if (with_scale && gf->nodes[raw_start + 11]->src[0] != out_reshaped) {
++        return false;
++    }
++
++    const int outputs[2] = { raw_start + 4, raw_end };
++    if (!ggml_can_fuse_subgraph_ext(gf, raw_idxs, raw_count, ops_all.data(), outputs, 2)) {
++        return false;
++    }
++
++    if (mode == GGML_METAL_FUSION_FULL) {
++        if (!logits->data || !out->data || !ids->data || !bias->data) {
++            return false;
++        }
++    }
++
++    return true;
++}
++
+ #define GGML_METAL_MOE_REDUCE_MAX_EXPERTS 8
+ 
+ struct ggml_metal_moe_reduce_match {
+@@ -781,6 +906,8 @@ static const std::vector<ggml_metal_fusion> ggml_metal_fusions = {
+     { GGML_METAL_FUSION_TOPK_MOE,       ops_topk_moe_scale,         {1},    true,  ggml_metal_fusion_check_topk_moe },
+     { GGML_METAL_FUSION_TOPK_MOE,       ops_topk_moe_norm,          {1},    true,  ggml_metal_fusion_check_topk_moe },
+     { GGML_METAL_FUSION_TOPK_MOE,       ops_topk_moe_norm_scale,    {1},    true,  ggml_metal_fusion_check_topk_moe },
++    { GGML_METAL_FUSION_TOPK_MOE,       ops_topk_moe_sigmoid_norm,  {2},    true,  ggml_metal_fusion_check_topk_moe_sigmoid },
++    { GGML_METAL_FUSION_TOPK_MOE,       ops_topk_moe_sigmoid_norm_scale, {2}, true,  ggml_metal_fusion_check_topk_moe_sigmoid },
+     { GGML_METAL_FUSION_MOE_REDUCE,     ops_moe_reduce_2,           {},     true,  ggml_metal_fusion_check_moe_reduce },
+     { GGML_METAL_FUSION_MOE_REDUCE,     ops_moe_reduce_3,           {},     true,  ggml_metal_fusion_check_moe_reduce },
+     { GGML_METAL_FUSION_MOE_REDUCE,     ops_moe_reduce_4,           {},     true,  ggml_metal_fusion_check_moe_reduce },
+diff --git a/ggml/src/ggml-metal/ggml-metal-ops.cpp b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+index 14712c3e8..c5d635ba3 100644
+--- a/ggml/src/ggml-metal/ggml-metal-ops.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+@@ -821,6 +821,15 @@ int ggml_metal_op_acc(ggml_metal_op_t ctx, int idx) {
+ int ggml_metal_op_unary(ggml_metal_op_t ctx, int idx) {
+     ggml_tensor * op = ctx->node(idx);
+ 
++    // sigmoid MoE routing (sigmoid + bias + top-k + norm + scale)
++    if (ctx->use_fusion() && op->op == GGML_OP_UNARY && ggml_get_unary_op(op) == GGML_UNARY_OP_SIGMOID) {
++        int n = 1;
++        const ggml_metal_fusion * fusion = ctx->can_fuse(idx, GGML_METAL_FUSION_FULL, &n);
++        if (fusion && ggml_metal_fusion_get_id(fusion) == GGML_METAL_FUSION_TOPK_MOE) {
++            return ggml_metal_op_topk_moe(ctx, idx);
++        }
++    }
++
+     ggml_metal_library_t lib = ctx->lib;
+     ggml_metal_encoder_t enc = ctx->enc;
+ 
+@@ -5890,20 +5899,30 @@ int ggml_metal_op_topk_moe(ggml_metal_op_t ctx, int idx) {
+ 
+     ggml_tensor * softmax  = ctx->node(idx);
+     ggml_tensor * logits   = softmax->src[0];
+-    ggml_tensor * get_rows = ctx->node(idx + 2);
++
++    // sigmoid gating: UNARY, ADD(bias), ARGSORT, GET_ROWS, SUM_ROWS, CLAMP, DIV[, SCALE]
++    const bool sigmoid = softmax->op == GGML_OP_UNARY;
++    const int  off     = sigmoid ? 1 : 0;
++
++    ggml_tensor * get_rows = ctx->node(idx + 2 + off);
+     ggml_tensor * ids      = get_rows->src[1];
+     ggml_tensor * weights  = ctx->node(idx + n_fuse - 1);
++    ggml_tensor * bias     = nullptr;
++    if (sigmoid) {
++        ggml_tensor * add = ctx->node(idx + 1);
++        bias = add->src[0] == softmax ? add->src[1] : add->src[0];
++    }
+ 
+     const int64_t n_expert      = logits->ne[0];
+     const int64_t n_tokens      = logits->ne[1];
+     const int64_t n_expert_used = ids->ne[0];
+ 
+-    const bool with_norm  = n_fuse >= 6;
+-    const bool with_scale = n_fuse == 4 || n_fuse == 7;
++    const bool with_norm  = sigmoid || n_fuse >= 6;
++    const bool with_scale = sigmoid ? n_fuse == 8 : (n_fuse == 4 || n_fuse == 7);
+ 
+     float clamp = -INFINITY;
+     if (with_norm) {
+-        ggml_tensor * clamp_node = ctx->node(idx + 4);
++        ggml_tensor * clamp_node = ctx->node(idx + 4 + off);
+         clamp = ggml_get_op_params_f32(clamp_node, 0);
+     }
+ 
+@@ -5921,20 +5940,21 @@ int ggml_metal_op_topk_moe(ggml_metal_op_t ctx, int idx) {
+         /*.scale =*/ scale,
+     };
+ 
+-    auto pipeline = ggml_metal_library_get_pipeline_topk_moe(lib, (int32_t) n_expert, (int32_t) n_expert_used, with_norm);
++    auto pipeline = ggml_metal_library_get_pipeline_topk_moe(lib, (int32_t) n_expert, (int32_t) n_expert_used, with_norm, sigmoid);
+ 
+     ggml_metal_encoder_set_pipeline(enc, pipeline);
+     ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(logits),  1);
+     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(weights), 2);
+     ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(ids),     3);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(sigmoid ? bias : logits), 4);
+ 
+     ggml_metal_encoder_dispatch_threadgroups(enc, (uint32_t) n_tokens, 1, 1, 32, 1, 1);
+ 
+     ctx->count_fusions(fusion);
+ 
+     if (ggml_metal_fusion_info_debug(ctx->finfo) > 1) {
+-        GGML_LOG_DEBUG("%s: fuse: SOFT_MAX + ARGSORT + GET_ROWS\n", __func__);
++        GGML_LOG_DEBUG("%s: fuse: %s + ARGSORT + GET_ROWS\n", __func__, sigmoid ? "SIGMOID + ADD" : "SOFT_MAX");
+     }
+ 
+     return n_fuse;
+diff --git a/ggml/src/ggml-metal/kernels/argsort.metal b/ggml/src/ggml-metal/kernels/argsort.metal
+index 5231b8395..0e068c481 100644
+--- a/ggml/src/ggml-metal/kernels/argsort.metal
++++ b/ggml/src/ggml-metal/kernels/argsort.metal
+@@ -3,6 +3,7 @@
+ constant bool FC_topk_moe_with_norm [[function_constant(FC_TOPK_MOE + 0)]];
+ constant int  FC_topk_moe_n_expert  [[function_constant(FC_TOPK_MOE + 1)]];
+ constant int  FC_topk_moe_top_k     [[function_constant(FC_TOPK_MOE + 2)]];
++constant bool FC_topk_moe_sigmoid   [[function_constant(FC_TOPK_MOE + 3)]]; // sigmoid gating, top-k over sigmoid + bias
+ 
+ constant int  FC_moe_reduce_n_expert_used [[function_constant(FC_MOE_REDUCE + 0)]];
+ 
+@@ -349,6 +350,7 @@ kernel void kernel_topk_moe_f32(
+         device const char * src0,
+         device       float * weights,
+         device      int32_t * ids,
++        device const float * bias,
+         uint3   tgpig[[threadgroup_position_in_grid]],
+         ushort  tiisg[[thread_index_in_simdgroup]]) {
+     const int row = (int) tgpig.x;
+@@ -377,60 +379,83 @@ kernel void kernel_topk_moe_f32(
+         wt[i / 32] = isnan(v) ? -FLT_MAX : v;
+     }
+ 
+-    // softmax over the expert logits
+-    float max_val = -INFINITY;
+-    FOR_UNROLL (int i = 0; i < n_per_lane; ++i) {
+-        max_val = max(max_val, wt[i]);
+-    }
+-    max_val = simd_max(max_val);
++    // sel: the score the top-k ranks; wt: the routing weight that is gathered (they differ only for sigmoid + bias)
++    float sel[32];
+ 
+-    float sum_val = 0.0f;
+-    FOR_UNROLL (int i = 0; i < n_per_lane; ++i) {
+-        wt[i] = exp(wt[i] - max_val);
+-        sum_val += wt[i];
+-    }
+-    sum_val = simd_sum(sum_val);
++    if (FC_topk_moe_sigmoid) {
++        FOR_UNROLL (int i = 0; i < 32; ++i) {
++            const int expert = lane + i * 32;
++            if (i < n_per_lane && expert < n_expert) {
++                wt[i]  = 1.0f / (1.0f + exp(-wt[i]));
++                sel[i] = wt[i] + bias[expert];
++            } else {
++                sel[i] = -INFINITY;
++            }
++        }
++    } else {
++        // softmax over the expert logits
++        float max_val = -INFINITY;
++        FOR_UNROLL (int i = 0; i < n_per_lane; ++i) {
++            max_val = max(max_val, wt[i]);
++        }
++        max_val = simd_max(max_val);
+ 
+-    const float inv_sum = 1.0f / sum_val;
+-    FOR_UNROLL (int i = 0; i < n_per_lane; ++i) {
+-        wt[i] *= inv_sum;
++        float sum_val = 0.0f;
++        FOR_UNROLL (int i = 0; i < n_per_lane; ++i) {
++            wt[i] = exp(wt[i] - max_val);
++            sum_val += wt[i];
++        }
++        sum_val = simd_sum(sum_val);
++
++        const float inv_sum = 1.0f / sum_val;
++        FOR_UNROLL (int i = 0; i < n_per_lane; ++i) {
++            wt[i] *= inv_sum;
++        }
++
++        FOR_UNROLL (int i = 0; i < 32; ++i) {
++            sel[i] = wt[i];
++        }
+     }
+ 
+     float wt_sum = 0.0f;
+ 
+     for (int k = 0; k < top_k; ++k) {
+         float best_val = -INFINITY;
++        float best_wt  = 0.0f;
+         int   best_expert = -1;
+ 
+         FOR_UNROLL (int i = 0; i < n_per_lane; ++i) {
+             const int expert = lane + i * 32;
+-            if (expert < n_expert && (wt[i] > best_val || (wt[i] == best_val && expert < best_expert))) {
+-                best_val    = wt[i];
++            if (expert < n_expert && (sel[i] > best_val || (sel[i] == best_val && expert < best_expert))) {
++                best_val    = sel[i];
++                best_wt     = wt[i];
+                 best_expert = expert;
+             }
+         }
+ 
+         FOR_UNROLL (int mask = 16; mask > 0; mask >>= 1) {
+             const float val    = simd_shuffle_xor(best_val, mask);
++            const float w      = simd_shuffle_xor(best_wt, mask);
+             const int   expert = simd_shuffle_xor(best_expert, mask);
+             if (val > best_val || (val == best_val && expert < best_expert)) {
+                 best_val    = val;
++                best_wt     = w;
+                 best_expert = expert;
+             }
+         }
+ 
+         if ((best_expert & 31) == lane) {
+-            wt[best_expert / 32] = -INFINITY;
++            sel[best_expert / 32] = -INFINITY;
+         }
+ 
+         if ((k & 31) == lane) {
+-            output_weights[k / 32] = best_val;
++            output_weights[k / 32] = best_wt;
+         }
+ 
+         if ((best_expert & 31) == lane) {
+             ids_row[k] = best_expert;
+             if (FC_topk_moe_with_norm) {
+-                wt_sum += best_val;
++                wt_sum += best_wt;
+             }
+         }
+     }
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index f33fe177e..6ecffa186 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -12459,6 +12459,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+                     test_cases.emplace_back(new test_topk_moe({384,  1, 1, 1}, 6, with_norm, bias_probs, gate, scale_w)); // Used by DeepSeek-V4.1
+                     test_cases.emplace_back(new test_topk_moe({384,  8, 1, 1}, 6, with_norm, bias_probs, gate, scale_w));
+                     test_cases.emplace_back(new test_topk_moe({384, 22, 1, 1}, 6, with_norm, bias_probs, gate, scale_w));
++                    test_cases.emplace_back(new test_topk_moe({128, 22, 1, 1}, 6, with_norm, bias_probs, gate, scale_w)); // Used by Nemotron-3-Nano
++                    test_cases.emplace_back(new test_topk_moe({496, 22, 1, 1}, 9, with_norm, bias_probs, gate, scale_w)); // Used by Nemotron-3.5-Bolt
+                     // rows at and just past the limit where one block still covers all rows
+                     test_cases.emplace_back(new test_topk_moe({32, 8, 1, 1}, 4, with_norm, bias_probs, gate, scale_w));
+                     test_cases.emplace_back(new test_topk_moe({32, 8, 1, 1}, 8, with_norm, bias_probs, gate, scale_w));

@@ -1,0 +1,277 @@
+diff --git a/ggml/src/ggml-metal/ggml-metal-device.cpp b/ggml/src/ggml-metal/ggml-metal-device.cpp
+index 25a8a3ef6..6e1b154dd 100644
+--- a/ggml/src/ggml-metal/ggml-metal-device.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-device.cpp
+@@ -1653,6 +1653,17 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_argsort_merge(gg
+     return res;
+ }
+ 
++ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm_sk_reduce(ggml_metal_library_t lib) {
++    const char * name = "kernel_mul_mm_sk_reduce";
++
++    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
++    if (!res.pipeline) {
++        res = ggml_metal_library_compile_pipeline(lib, name, name, nullptr);
++    }
++
++    return res;
++}
++
+ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_fwht(ggml_metal_library_t lib, int n, ggml_type tsrc) {
+     char base[256];
+     char name[256];
+diff --git a/ggml/src/ggml-metal/ggml-metal-device.h b/ggml/src/ggml-metal/ggml-metal-device.h
+index dd7cdb958..5f2158c2b 100644
+--- a/ggml/src/ggml-metal/ggml-metal-device.h
++++ b/ggml/src/ggml-metal/ggml-metal-device.h
+@@ -139,6 +139,7 @@ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_ex
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_mma        (ggml_metal_library_t lib, const struct ggml_tensor * op, int nsg, int nt, int rt, bool add);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_mma_auto   (ggml_metal_library_t lib, const struct ggml_tensor * op, bool add);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm            (ggml_metal_library_t lib, const struct ggml_tensor * op);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm_sk_reduce  (ggml_metal_library_t lib);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv            (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm_id_map0    (ggml_metal_library_t lib, int ne02, int ne20);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm_id_zero    (ggml_metal_library_t lib);
+diff --git a/ggml/src/ggml-metal/ggml-metal-impl.h b/ggml/src/ggml-metal/ggml-metal-impl.h
+index 6e566084a..7d167d8f2 100644
+--- a/ggml/src/ggml-metal/ggml-metal-impl.h
++++ b/ggml/src/ggml-metal/ggml-metal-impl.h
+@@ -516,8 +516,15 @@ typedef struct {
+     int32_t  ne1;
+     int16_t  r2;
+     int16_t  r3;
++    int32_t  nsk; // K splits (grid z = nsk*ne12*ne13), 1 = no split
++    int32_t  nkc; // K elements per split
+ } ggml_metal_kargs_mul_mm;
+ 
++typedef struct {
++    int32_t  n;   // floats per split
++    int32_t  nsk;
++} ggml_metal_kargs_mul_mm_sk_reduce;
++
+ typedef struct {
+     int32_t  ne00;
+     int32_t  ne01;
+diff --git a/ggml/src/ggml-metal/ggml-metal-ops.cpp b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+index 14712c3e8..ebc61a772 100644
+--- a/ggml/src/ggml-metal/ggml-metal-ops.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+@@ -2713,6 +2713,41 @@ static int ggml_metal_op_mul_mat_mv(ggml_metal_op_t ctx, int idx) {
+     return 1;
+ }
+ 
++// the mat-mat kernel splits K until it has about this many threadgroups (tuned on an M3 Max with 16-64 src1 rows)
++static constexpr int64_t GGML_METAL_MM_SK_MIN_TG = 512;
++
++// K elements per split are a multiple of 256 (a whole number of blocks of every type), at least 512
++static constexpr int64_t GGML_METAL_MM_SK_ALIGN  = 256;
++static constexpr int64_t GGML_METAL_MM_SK_MIN_K  = 2*GGML_METAL_MM_SK_ALIGN;
++static constexpr int     GGML_METAL_MM_SK_MAX    = 16;
++
++static int64_t ggml_metal_op_mul_mat_nkc(const ggml_tensor * op) {
++    const int64_t ne00 = op->src[0]->ne[0];
++
++    const int64_t tiles = ((op->ne[1] + 31)/32)*((op->ne[0] + 63)/64)*op->ne[2]*op->ne[3];
++    if (tiles >= GGML_METAL_MM_SK_MIN_TG || ne00 < 2*GGML_METAL_MM_SK_MIN_K || op->src[1]->ne[1] <= 8) {
++        return ne00;
++    }
++
++    const int64_t nsk = std::min<int64_t>({ (GGML_METAL_MM_SK_MIN_TG + tiles - 1)/tiles, ne00/GGML_METAL_MM_SK_MIN_K, GGML_METAL_MM_SK_MAX });
++
++    return ((ne00 + nsk*GGML_METAL_MM_SK_ALIGN - 1)/(nsk*GGML_METAL_MM_SK_ALIGN))*GGML_METAL_MM_SK_ALIGN;
++}
++
++int ggml_metal_op_mul_mat_nsk(const ggml_tensor * op) {
++    const int64_t nkc = ggml_metal_op_mul_mat_nkc(op);
++
++    return (int) ((op->src[0]->ne[0] + nkc - 1)/nkc);
++}
++
++size_t ggml_metal_op_mul_mat_extra_sk(const ggml_tensor * op) {
++    assert(op->op == GGML_OP_MUL_MAT);
++
++    const int nsk = ggml_metal_op_mul_mat_nsk(op);
++
++    return nsk > 1 ? nsk*ggml_nbytes(op) : 0;
++}
++
+ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+     ggml_tensor * op = ctx->node(idx);
+ 
+@@ -2860,6 +2895,13 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+ 
+         auto pipeline = ggml_metal_library_get_pipeline_mul_mm(lib, op);
+ 
++        // the tensor-API kernel does not split K
++        const int nsk = props_dev->has_tensor ? 1 : ggml_metal_op_mul_mat_nsk(op);
++
++        ggml_metal_buffer_id bid_dst = ggml_metal_get_buffer_id(op);
++        ggml_metal_buffer_id bid_sk  = bid_dst;
++        bid_sk.offs += ggml_nbytes(op);
++
+         ggml_metal_kargs_mul_mm args = {
+             /*.ne00 =*/ ne00,
+             /*.ne02 =*/ ne02,
+@@ -2875,13 +2917,15 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+             /*.ne1  =*/ ne1,
+             /*.r2   =*/ r2,
+             /*.r3   =*/ r3,
++            /*.nsk  =*/ nsk,
++            /*.nkc  =*/ nsk > 1 ? (int32_t) ggml_metal_op_mul_mat_nkc(op) : ne00,
+         };
+ 
+         ggml_metal_encoder_set_pipeline(enc, pipeline);
+         ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
+         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[0]), 1);
+         ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op->src[1]), 2);
+-        ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(op),         3);
++        ggml_metal_encoder_set_buffer  (enc, nsk > 1 ? bid_sk : bid_dst,          3);
+ 
+         const size_t smem = pipeline.smem;
+ 
+@@ -2891,7 +2935,26 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+         const int nr1 = pipeline.nr1;
+         const int nsg = pipeline.nsg;
+ 
+-        ggml_metal_encoder_dispatch_threadgroups(enc, ((ne11 + nr1 - 1) / nr1), ((ne01 + nr0 - 1) / nr0), ne12 * ne13, 32, nsg, 1);
++        ggml_metal_encoder_dispatch_threadgroups(enc, ((ne11 + nr1 - 1) / nr1), ((ne01 + nr0 - 1) / nr0), nsk * ne12 * ne13, 32, nsg, 1);
++
++        if (nsk > 1) {
++            ggml_metal_op_concurrency_reset(ctx);
++
++            auto pipeline_red = ggml_metal_library_get_pipeline_mul_mm_sk_reduce(lib);
++
++            ggml_metal_kargs_mul_mm_sk_reduce args_red = {
++                /*.n   =*/ (int32_t) ggml_nelements(op),
++                /*.nsk =*/ nsk,
++            };
++
++            ggml_metal_encoder_set_pipeline(enc, pipeline_red);
++            ggml_metal_encoder_set_bytes   (enc, &args_red, sizeof(args_red), 0);
++            ggml_metal_encoder_set_buffer  (enc, bid_sk,  1);
++            ggml_metal_encoder_set_buffer  (enc, bid_dst, 2);
++
++            const int nth = 256;
++            ggml_metal_encoder_dispatch_threadgroups(enc, (args_red.n + nth - 1)/nth, 1, 1, nth, 1, 1);
++        }
+     } else {
+         return ggml_metal_op_mul_mat_mv(ctx, idx);
+     }
+diff --git a/ggml/src/ggml-metal/ggml-metal-ops.h b/ggml/src/ggml-metal/ggml-metal-ops.h
+index 0a77d8d69..5f36ae834 100644
+--- a/ggml/src/ggml-metal/ggml-metal-ops.h
++++ b/ggml/src/ggml-metal/ggml-metal-ops.h
+@@ -31,6 +31,10 @@ int ggml_metal_op_encode(ggml_metal_op_t ctx, int idx);
+ // available ops:
+ //
+ 
++// K splits of the mat-mat kernel when its tiles alone cannot fill the GPU, and the partial results they need
++int    ggml_metal_op_mul_mat_nsk(const struct ggml_tensor * op);
++size_t ggml_metal_op_mul_mat_extra_sk(const struct ggml_tensor * op);
++
+ // tokens per expert
+ size_t ggml_metal_op_mul_mat_id_extra_tpe(const struct ggml_tensor * op);
+ 
+diff --git a/ggml/src/ggml-metal/ggml-metal.cpp b/ggml/src/ggml-metal/ggml-metal.cpp
+index d0771eb49..5dbf31def 100644
+--- a/ggml/src/ggml-metal/ggml-metal.cpp
++++ b/ggml/src/ggml-metal/ggml-metal.cpp
+@@ -222,6 +222,10 @@ static size_t ggml_backend_metal_buffer_type_get_alloc_size(ggml_backend_buffer_
+ 
+     // some operations require additional memory for fleeting data:
+     switch (tensor->op) {
++        case GGML_OP_MUL_MAT:
++            {
++                res += ggml_metal_op_mul_mat_extra_sk(tensor);
++            } break;
+         case GGML_OP_MUL_MAT_ID:
+             {
+                 res += ggml_metal_op_mul_mat_id_extra_tpe(tensor);
+diff --git a/ggml/src/ggml-metal/kernels/mul_mm.metal b/ggml/src/ggml-metal/kernels/mul_mm.metal
+index edcc061d5..bc52ba593 100644
+--- a/ggml/src/ggml-metal/kernels/mul_mm.metal
++++ b/ggml/src/ggml-metal/kernels/mul_mm.metal
+@@ -172,7 +172,11 @@ kernel void kernel_mul_mm(
+     constexpr int NL0 = NK/16;
+     constexpr int NL1 = NK/8;
+ 
+-    const int im = tgpig.z;
++    // with a K split, z = split*(ne12*ne13) + batch and the partial tiles go to slice z of dst
++    const int iz = tgpig.z;
++    const int im = iz % (FC_mul_mm_ne12*FC_mul_mm_ne13);
++    const int k0 = (iz / (FC_mul_mm_ne12*FC_mul_mm_ne13))*args.nkc;
++    const int k1 = min(k0 + args.nkc, args.ne00);
+     const int r0 = tgpig.y*NR0;
+     const int r1 = tgpig.x*NR1;
+ 
+@@ -194,7 +198,8 @@ kernel void kernel_mul_mm(
+     const uint64_t offset0 = (i12/FC_mul_mm_r2)*args.nb02 + (i13/FC_mul_mm_r3)*args.nb03;
+     const short    offset1 = il0/nl;
+ 
+-    device const block_q * x = (device const block_q *)(src0 + args.nb01*(r0 + lr0) + offset0) + offset1;
++    // k0 is a multiple of 256, so it starts on a block boundary for every type
++    device const block_q * x = (device const block_q *)(src0 + args.nb01*(r0 + lr0) + offset0) + offset1 + k0/(16*nl);
+ 
+     const short iy = 8*(tiitg % NL1);
+ 
+@@ -202,7 +207,7 @@ kernel void kernel_mul_mm(
+         + args.nb13*i13
+         + args.nb12*i12
+         + args.nb11*(r1 + lr1)
+-        + args.nb10*iy);
++        + args.nb10*(iy + k0));
+ 
+     S0_8x8 ma[4];
+     S1_8x8 mb[2];
+@@ -213,7 +218,7 @@ kernel void kernel_mul_mm(
+         mc[i] = make_filled_simdgroup_matrix<float, 8>(0.f);
+     }
+ 
+-    for (int loop_k = 0; loop_k < args.ne00; loop_k += NK) {
++    for (int loop_k = k0; loop_k < k1; loop_k += NK) {
+         // load data and store to threadgroup memory
+         if (is_same<T0_4x4, block_q>::value && FC_mul_mm_bc_inp) {
+             threadgroup_barrier(mem_flags::mem_threadgroup);
+@@ -323,7 +328,7 @@ kernel void kernel_mul_mm(
+         // if no bounds checks on the output are needed, we can directly write to device memory
+         device float * C = (device float *) dst +
+             (r0 + 32*(sgitg &  1)) + \
+-            (uint64_t) (r1 + 16*(sgitg >> 1))*args.ne0 + (uint64_t) im*args.ne1*args.ne0;
++            (uint64_t) (r1 + 16*(sgitg >> 1))*args.ne0 + (uint64_t) iz*args.ne1*args.ne0;
+ 
+         for (short i = 0; i < 8; i++) {
+             simdgroup_store(mc[i], C + 8*(i%4) + (uint64_t) 8*args.ne0*(i/4), args.ne0, 0, false);
+@@ -342,7 +347,7 @@ kernel void kernel_mul_mm(
+ 
+         if (sgitg == 0) {
+             for (int j = tiitg; j < nr1; j += NR1) {
+-                device float  * D  = (device float  *) dst + r0 + (uint64_t) (r1 + j)*args.ne0 + (uint64_t) im*args.ne1*args.ne0;
++                device float  * D  = (device float  *) dst + r0 + (uint64_t) (r1 + j)*args.ne0 + (uint64_t) iz*args.ne1*args.ne0;
+                 device float4 * D4 = (device float4 *) D;
+ 
+                 threadgroup float  * C  = temp_str + (j*NR0);
+@@ -364,6 +369,24 @@ kernel void kernel_mul_mm(
+ 
+ #endif // GGML_METAL_HAS_TENSOR
+ 
++// sums the nsk partial results of a K-split kernel_mul_mm
++kernel void kernel_mul_mm_sk_reduce(
++        constant ggml_metal_kargs_mul_mm_sk_reduce & args,
++        device const float * src,
++        device       float * dst,
++        uint tpig[[thread_position_in_grid]]) {
++    if ((int) tpig >= args.n) {
++        return;
++    }
++
++    float sum = 0.0f;
++    for (int s = 0; s < args.nsk; ++s) {
++        sum += src[(uint64_t) s*args.n + tpig];
++    }
++
++    dst[tpig] = sum;
++}
++
+ template<short ne20> // n_expert_used
+ kernel void kernel_mul_mm_id_map0(
+         constant ggml_metal_kargs_mul_mm_id_map0 & args,

@@ -1,0 +1,746 @@
+diff -ru a/ggml/src/ggml-cpu/ops.cpp b/ggml/src/ggml-cpu/ops.cpp
+--- a/ggml/src/ggml-cpu/ops.cpp	2026-10-28 09:53:29
++++ b/ggml/src/ggml-cpu/ops.cpp	2026-10-28 09:53:29
+@@ -10110,7 +10110,7 @@
+ 
+     GGML_ASSERT(K >= 1);
+     GGML_ASSERT(ggml_nelements(src1) + K*nc*nr*nh*ns == ggml_nelements(dst));
+-    GGML_ASSERT(src0->nb[0] == sizeof(float));
++    GGML_ASSERT(src0->nb[0] == ggml_type_size(src0->type));
+     GGML_ASSERT(src1->nb[0] == sizeof(float));
+     GGML_ASSERT(src2->nb[0] == sizeof(float));
+     GGML_ASSERT(src3->nb[0] == sizeof(float));
+@@ -10120,6 +10120,10 @@
+     GGML_ASSERT(nh % ng == 0);
+     GGML_ASSERT(src3->ne[0] == 1 || K == 1);
+ 
++    // the state output is f32 even when the input state is f16
++    const size_t snb2 = nc*nr*sizeof(float);
++    const size_t snb3 = snb2*nh;
++
+     // heads per thread
+     const int dh = (nh + nth - 1)/nth;
+ 
+@@ -10131,8 +10135,17 @@
+ 
+     for (int i3 = 0; i3 < ns; ++i3) {
+         const float * s0 = (const float *) ((const char *) src0->data + ids[i3]*(src0->nb[3])); // {d_state, dim, nh, ns}
+-              float * s  = (      float *) ((      char *) dst->data  + i3*(src0->nb[3]) + s_off); // {d_state, dim, nh, ns}
++              float * s  = (      float *) ((      char *) dst->data  + i3*snb3 + s_off); // {d_state, dim, nh, ns}
+ 
++        if (src0->type == GGML_TYPE_F16) {
++            // widen this thread's heads into the output state and scan from there
++            const ggml_fp16_t * s0_h = (const ggml_fp16_t *) ((const char *) src0->data + ids[i3]*(src0->nb[3]));
++            if (ih1 > ih0) {
++                ggml_cpu_fp16_to_fp32(s0_h + ih0*nc*nr, s + ih0*nc*nr, (ih1 - ih0)*nc*nr);
++            }
++            s0 = s;
++        }
++
+         for (int i2 = 0; i2 < nt; ++i2) {
+             const float * x  = (const float *) ((const char *) src1->data + i2*(src1->nb[2]) + i3*(src1->nb[3])); // {dim, nh, nt, ns}
+             const float * dt = (const float *) ((const char *) src2->data + i2*(src2->nb[1]) + i3*(src2->nb[2])); // {nh, nt, ns}
+@@ -10295,9 +10308,9 @@
+             }
+             const int64_t slot = nt - 1 - i2;
+             if (K > 1 && slot > 0 && slot < K) {
+-                float * s_snapshot = (float *) ((char *) dst->data + s_off + (slot*ns + i3)*(src0->nb[3]));
++                float * s_snapshot = (float *) ((char *) dst->data + s_off + (slot*ns + i3)*snb3);
+                 for (int h = ih0; h < ih1; ++h) {
+-                    memcpy((char *) s_snapshot + h*src0->nb[2], (char *) s + h*src0->nb[2], src0->nb[2]);
++                    memcpy((char *) s_snapshot + h*snb2, (char *) s + h*snb2, snb2);
+                 }
+             }
+             // use the output as the source when it's not the first token-wise iteration
+@@ -10311,6 +10324,7 @@
+         ggml_tensor * dst) {
+     switch (dst->src[0]->type) {
+         case GGML_TYPE_F32:
++        case GGML_TYPE_F16:
+             {
+                 ggml_compute_forward_ssm_scan_f32(params, dst);
+             } break;
+diff -ru a/ggml/src/ggml-metal/ggml-metal-device.cpp b/ggml/src/ggml-metal/ggml-metal-device.cpp
+--- a/ggml/src/ggml-metal/ggml-metal-device.cpp	2026-10-28 09:53:29
++++ b/ggml/src/ggml-metal/ggml-metal-device.cpp	2026-10-28 09:53:29
+@@ -646,12 +646,21 @@
+ 
+     const int nsg = (ne00 + 31)/32;
+ 
+-    snprintf(base, 256, "kernel_ssm_scan_%s%s", ggml_type_name(op->src[0]->type), tail ? "_tail" : "");
+-    snprintf(name, 256, "%s_nsg=%d", base, nsg);
++    const bool s16 = op->src[0]->type == GGML_TYPE_F16;
+ 
++    snprintf(base, 256, "kernel_ssm_scan_f32%s", tail ? "_tail" : "");
++    snprintf(name, 256, "%s_nsg=%d_s16=%d", base, nsg, s16);
++
+     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+     if (!res.pipeline) {
+-        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
++        ggml_metal_cv_t cv = ggml_metal_cv_init();
++        ggml_metal_cv_set_bool(cv, s16,   FC_SSM_SCAN + 0);
++        ggml_metal_cv_set_bool(cv, false, FC_SSM_SCAN + 1);
++        ggml_metal_cv_set_bool(cv, false, FC_SSM_SCAN + 2);
++
++        res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
++
++        ggml_metal_cv_free(cv);
+     }
+ 
+     // Shared memory layout:
+@@ -664,14 +673,30 @@
+     return res;
+ }
+ 
+-ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_rows(ggml_metal_library_t lib, const ggml_tensor * op)  {
++ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_rows(ggml_metal_library_t lib, const ggml_tensor * op, bool d16)  {
+     char base[256];
++    char name[256];
+ 
+-    snprintf(base, 256, "kernel_ssm_scan_%s_rows", ggml_type_name(op->src[0]->type));
++    const bool s16 = op->src[0]->type == GGML_TYPE_F16;
+ 
+-    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, base);
++    const bool rtn = getenv("TMP_SSM_RTN") != nullptr;
++
++    // d_state == 128 with a scalar decay: the vectorized 4-rows-per-simdgroup variant
++    const bool rows4 = op->src[0]->ne[0] == 128 && op->src[3]->ne[0] == 1 && !getenv("TMP_NO_ROWS4");
++
++    snprintf(base, 256, "kernel_ssm_scan_f32_rows%s", rows4 ? "4" : "");
++    snprintf(name, 256, "%s_s16=%d_d16=%d_rtn=%d", base, s16, d16, rtn);
++
++    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+     if (!res.pipeline) {
+-        res = ggml_metal_library_compile_pipeline(lib, base, base, nullptr);
++        ggml_metal_cv_t cv = ggml_metal_cv_init();
++        ggml_metal_cv_set_bool(cv, s16, FC_SSM_SCAN + 0);
++        ggml_metal_cv_set_bool(cv, d16, FC_SSM_SCAN + 1);
++        ggml_metal_cv_set_bool(cv, rtn, FC_SSM_SCAN + 2);
++
++        res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
++
++        ggml_metal_cv_free(cv);
+     }
+ 
+     return res;
+@@ -681,12 +706,21 @@
+     char base[256];
+     char name[256];
+ 
+-    snprintf(base, 256, "kernel_ssm_scan_ssd_mma_%s", ggml_type_name(op->src[0]->type));
+-    snprintf(name, 256, "%s", base);
++    const bool s16 = op->src[0]->type == GGML_TYPE_F16;
+ 
++    snprintf(base, 256, "kernel_ssm_scan_ssd_mma_f32");
++    snprintf(name, 256, "%s_s16=%d", base, s16);
++
+     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+     if (!res.pipeline) {
+-        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
++        ggml_metal_cv_t cv = ggml_metal_cv_init();
++        ggml_metal_cv_set_bool(cv, s16,   FC_SSM_SCAN + 0);
++        ggml_metal_cv_set_bool(cv, false, FC_SSM_SCAN + 1);
++        ggml_metal_cv_set_bool(cv, false, FC_SSM_SCAN + 2);
++
++        res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
++
++        ggml_metal_cv_free(cv);
+     }
+ 
+     // acs/exp(acs)/state-decay vectors + dtX + SAM rows + two 8x8 tiles per simdgroup
+diff -ru a/ggml/src/ggml-metal/ggml-metal-device.h b/ggml/src/ggml-metal/ggml-metal-device.h
+--- a/ggml/src/ggml-metal/ggml-metal-device.h	2026-10-28 09:53:29
++++ b/ggml/src/ggml-metal/ggml-metal-device.h	2026-10-28 09:53:29
+@@ -132,7 +132,7 @@
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_batched  (ggml_metal_library_t lib, const struct ggml_tensor * op, int ssm_conv_bs, int32_t nc, bool use_silu, bool use_bias);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan          (ggml_metal_library_t lib, const struct ggml_tensor * op, bool tail);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_ssd_mma  (ggml_metal_library_t lib, const struct ggml_tensor * op);
+-struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_rows     (ggml_metal_library_t lib, const struct ggml_tensor * op);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_rows     (ggml_metal_library_t lib, const struct ggml_tensor * op, bool d16);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_rwkv              (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_gated_delta_net   (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_solve_tri         (ggml_metal_library_t lib, const struct ggml_tensor * op);
+diff -ru a/ggml/src/ggml-metal/ggml-metal-fusion.cpp b/ggml/src/ggml-metal/ggml-metal-fusion.cpp
+--- a/ggml/src/ggml-metal/ggml-metal-fusion.cpp	2026-10-28 09:53:29
++++ b/ggml/src/ggml-metal/ggml-metal-fusion.cpp	2026-10-28 09:53:29
+@@ -352,10 +352,11 @@
+     }
+ 
+     const int64_t expected_ne[GGML_MAX_DIMS] = { D, n_seqs, n_written, 1 };
+-    if (dst->type != GGML_TYPE_F32 ||
++    // an f16 cache is written with stochastic rounding (the unfused cpy rounds to nearest)
++    if ((dst->type != GGML_TYPE_F32 && dst->type != GGML_TYPE_F16) ||
+         !std::equal(expected_ne, expected_ne + GGML_MAX_DIMS, dst->ne) ||
+-        dst->nb[0] != ggml_type_size(GGML_TYPE_F32) ||
+-        dst->nb[1] != ggml_row_size(GGML_TYPE_F32, D)) {
++        dst->nb[0] != ggml_type_size(dst->type) ||
++        dst->nb[1] != ggml_row_size(dst->type, D)) {
+         return false;
+     }
+ 
+diff -ru a/ggml/src/ggml-metal/ggml-metal-impl.h b/ggml/src/ggml-metal/ggml-metal-impl.h
+--- a/ggml/src/ggml-metal/ggml-metal-impl.h	2026-10-28 09:53:29
++++ b/ggml/src/ggml-metal/ggml-metal-impl.h	2026-10-28 09:53:29
+@@ -116,6 +116,7 @@
+ #define FC_MUL_MM                      700
+ #define FC_ROPE                        800
+ #define FC_SSM_CONV                    900
++#define FC_SSM_SCAN                    950
+ #define FC_SOLVE_TRI                   1000
+ #define FC_COUNT_EQUAL                 1100
+ #define FC_UNARY                       1200
+@@ -1001,7 +1002,9 @@
+     uint64_t ns52;
+     uint64_t nb53;
+     uint64_t nb0;
+-    uint64_t nb_s_slot; // byte stride between rollback snapshot slots of the state output (rows kernel)
++    uint64_t nb_s2;     // byte strides of the state output (head, seq): src0's are those of the input state
++    uint64_t nb_s3;
++    uint64_t nb_s_slot; // byte stride between rollback snapshot slots of the state output
+ } ggml_metal_kargs_ssm_scan;
+ 
+ typedef struct {
+diff -ru a/ggml/src/ggml-metal/ggml-metal-ops.cpp b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+--- a/ggml/src/ggml-metal/ggml-metal-ops.cpp	2026-10-28 09:53:29
++++ b/ggml/src/ggml-metal/ggml-metal-ops.cpp	2026-10-28 09:53:29
+@@ -1908,7 +1908,9 @@
+         /*.ns52         =*/ nb52/nb50,
+         /*.nb53         =*/ nb53,
+         /*.nb0          =*/ nb0,
+-        /*.nb_s_slot    =*/ (uint64_t) n_seqs*nb03,
++        /*.nb_s2        =*/ (uint64_t) d_state*d_inner*sizeof(float),
++        /*.nb_s3        =*/ (uint64_t) d_state*d_inner*n_head*sizeof(float),
++        /*.nb_s_slot    =*/ (uint64_t) d_state*d_inner*n_head*n_seqs*sizeof(float),
+     };
+ 
+     constexpr int64_t CHUNK = OP_SSM_SCAN_SSD_CS;
+@@ -1945,7 +1947,8 @@
+         // when fused with the trailing cache cpy, the final state and snapshots are written straight
+         // into the recurrent cache and the cpy is skipped (see GGML_METAL_FUSION_SSM_SCAN_CACHE)
+         ggml_metal_buffer_id bid_s = ggml_metal_get_buffer_id(op);
+-        int n_fuse = 1;
++        int  n_fuse = 1;
++        bool d16    = false;
+ 
+         if (ctx->use_fusion()) {
+             int n = 1;
+@@ -1956,7 +1959,10 @@
+ 
+                 bid_s          = ggml_metal_get_buffer_id(dst_cache);
+                 args.s_off     = 0;
++                args.nb_s2     = ggml_row_size(dst_cache->type, d_state*d_inner);
++                args.nb_s3     = dst_cache->nb[1];
+                 args.nb_s_slot = dst_cache->nb[2];
++                d16    = dst_cache->type == GGML_TYPE_F16;
+                 n_fuse = 2;
+ 
+                 ctx->count_fusions(fusion);
+@@ -1965,9 +1971,17 @@
+             }
+         }
+ 
+-        const int64_t nsg = 8; // head_dim rows per threadgroup
++        if (getenv("TMP_SCANLOG")) { static int c[2]; c[n_fuse - 1]++; if ((c[0] + c[1]) % 400 == 0) fprintf(stderr, "TMP_SCANLOG fused=%d unfused=%d src0=%s n_seqs=%d\n", c[1], c[0], ggml_type_name(op->src[0]->type), (int) n_seqs); }
++        auto pipeline = ggml_metal_library_get_pipeline_ssm_scan_rows(lib, op, d16);
++
++        // simdgroups per threadgroup, and head_dim rows per threadgroup (the rows4 variant takes 4 per simdgroup)
++        const bool    rows4 = d_state == 128 && ne30 == 1 && !getenv("TMP_NO_ROWS4"); // see get_pipeline_ssm_scan_rows
++        const int64_t nsg   = rows4 ? 4 : 8;
++        const int64_t nrtg  = rows4 ? 4*nsg : nsg;
++
+         ggml_metal_encoder_set_buffer(enc, bid_s, 9);
+-        dispatch(ggml_metal_library_get_pipeline_ssm_scan_rows(lib, op), nsg*32, (d_inner + nsg - 1)/nsg);
++        dispatch(pipeline, nsg*32, (d_inner + nrtg - 1)/nrtg);
++        if (getenv("TMP_SCAN2X")) { ggml_metal_op_concurrency_reset(ctx); dispatch(pipeline, nsg*32, (d_inner + nrtg - 1)/nrtg); }
+         return n_fuse;
+     }
+ 
+diff -ru a/ggml/src/ggml-metal/kernels/ssm.metal b/ggml/src/ggml-metal/kernels/ssm.metal
+--- a/ggml/src/ggml-metal/kernels/ssm.metal	2026-10-28 09:53:29
++++ b/ggml/src/ggml-metal/kernels/ssm.metal	2026-10-28 09:53:29
+@@ -4,6 +4,30 @@
+ constant int  FC_ssm_conv_nc    [[function_constant(FC_SSM_CONV + 2)]];
+ constant bool FC_ssm_conv_bias  [[function_constant(FC_SSM_CONV + 3)]]; // fused per-channel bias add (before silu)
+ 
++constant bool FC_ssm_scan_s16  [[function_constant(FC_SSM_SCAN + 0)]]; // input state (src0) is f16
++constant bool FC_ssm_scan_d16  [[function_constant(FC_SSM_SCAN + 1)]]; // state output is f16 (rows kernel, fused cache)
++constant bool FC_ssm_scan_rtn  [[function_constant(FC_SSM_SCAN + 2)]]; // TMP: f16 state output rounded to nearest
++
++// f32 -> f16 with stochastic rounding: add r's low 13 bits below the f16 mantissa and truncate, so a value
++// rounds up with probability equal to its distance from the lower f16 neighbor; the rounding error is
++// unbiased instead of accumulating through the recurrence. Outside the normal f16 range: round to nearest.
++static inline half ssm_f32_to_f16_sr(float v, uint r) {
++    uint b = as_type<uint>(v);
++    const uint e = (b >> 23) & 0xff;
++    if (e < 113 || e > 141) {
++        return (half) v;
++    }
++    b = (b + (r & 0x1fff)) & ~0x1fffu;
++    return (half) as_type<float>(b);
++}
++
++static inline uint ssm_hash(uint x) {
++    x ^= x >> 16; x *= 0x7feb352du;
++    x ^= x >> 15; x *= 0x846ca68bu;
++    x ^= x >> 16;
++    return x;
++}
++
+ // ref: ggml.c:ggml_compute_forward_ssm_conv_f32
+ kernel void kernel_ssm_conv_f32_f32(
+         constant ggml_metal_kargs_ssm_conv & args,
+@@ -316,15 +340,14 @@
+ 
+     device const int32_t * ids = (device const int32_t *) src6;
+ 
+-    device       float * s_buff  = (device       float *) ((device       char *) dst  + ir*args.nb02 +      i3*args.nb03 + s_off);
+-    device const float * s0_buff = t_off != 0 ?
+-        s_buff :
+-        (device const float *) ((device const char *) src0 + ir*args.nb02 + ids[i3]*args.nb03);
++    device       float * s_buff  = (device       float *) ((device       char *) dst  + ir*args.nb_s2 +      i3*args.nb_s3 + s_off);
++    device const char  * s0_src  = (device const char *) src0 + ir*args.nb02 + ids[i3]*args.nb03;
+ 
+     const int32_t i = i0 + i1*nc;
+     const int32_t g = ir / (nh / ng); // repeat_interleave
+ 
+-    float s0 = s0_buff[i];
++    float s0 = t_off != 0 ? s_buff[i] :
++        FC_ssm_scan_s16 ? (float) ((device const half *) s0_src)[i] : ((device const float *) s0_src)[i];
+     float s  = 0.0f;
+ 
+     device const float * A = (device const float *) ((device const char *) src3 + ir*args.nb31); // {ne30, nh}
+@@ -373,7 +396,7 @@
+ 
+             const int32_t slot = n_t - 1 - (i2 + t);
+             if (slot > 0 && slot < K) {
+-                device float * s_snapshot = (device float *) ((device char *) s_buff + (int64_t) slot*n_s*args.nb03);
++                device float * s_snapshot = (device float *) ((device char *) s_buff + (int64_t) slot*args.nb_s_slot);
+                 s_snapshot[i] = s;
+             }
+ 
+@@ -399,6 +422,25 @@
+     s_buff[i] = s;
+ }
+ 
++// store one head_dim row of the state (lane holds entries tiisg + k*32); an f16 state is stochastically
++// rounded, with random bits from a hash of a per-step input, the row and the entry
++static inline void ssm_scan_store_state(device char * dst, thread const float * s, short nk, ushort tiisg, uint seed) {
++    constexpr short NS_MAX = 8;
++
++    FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
++        if (k < nk) {
++            const int32_t j = tiisg + k*N_SIMDWIDTH;
++            if (FC_ssm_scan_d16 && FC_ssm_scan_rtn) {
++                ((device half *) dst)[j] = (half) s[k];
++            } else if (FC_ssm_scan_d16) {
++                ((device half *) dst)[j] = ssm_f32_to_f16_sr(s[k], ssm_hash(seed ^ ssm_hash((uint) j + as_type<uint>(s[k]))));
++            } else {
++                ((device float *) dst)[j] = s[k];
++            }
++        }
++    }
++}
++
+ // few-token scan (decode, speculative verify): one simdgroup per head_dim row, the row's state stays in
+ // registers (lane holds d_state/32 entries) across tokens, so it is read and written once; no barriers
+ kernel void kernel_ssm_scan_f32_rows(
+@@ -437,8 +479,8 @@
+ 
+     device const int32_t * ids = (device const int32_t *) src6;
+ 
+-    device       float * s_buff  = (device       float *) (dst_s + ir*args.nb02 +      i3*args.nb03 + args.s_off)          + i1*nc;
+-    device const float * s0_buff = (device const float *) ((device const char *) src0 + ir*args.nb02 + ids[i3]*args.nb03) + i1*nc;
++    device       char  * s_buff  = dst_s + ir*args.nb_s2 + i3*args.nb_s3 + args.s_off + i1*nc*(FC_ssm_scan_d16 ? 2 : 4);
++    device const char  * s0_buff = (device const char *) src0 + ir*args.nb02 + ids[i3]*args.nb03 + i1*nc*(FC_ssm_scan_s16 ? 2 : 4);
+ 
+     const int32_t g = ir / (nh / ng);
+ 
+@@ -455,16 +497,21 @@
+ 
+     FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
+         if (k < nk) {
+-            s[k] = s0_buff[tiisg + k*N_SIMDWIDTH];
++            const int32_t j = tiisg + k*N_SIMDWIDTH;
++            s[k] = FC_ssm_scan_s16 ? (float) ((device const half *) s0_buff)[j] : ((device const float *) s0_buff)[j];
+             a[k] = A[(tiisg + k*N_SIMDWIDTH) % args.ne30];
+         }
+     }
+ 
++    float x_last = 0.0f; // seeds the stochastic rounding of an f16 state
++
+     for (int32_t t = 0; t < n_t; ++t) {
+         const float dt0  = dt[0];
+         const float dtsp = dt0 <= 20.0f ? log(1.0f + exp(dt0)) : dt0;
+         const float x_dt = x[0] * dtsp;
+ 
++        x_last = x_dt;
++
+         float sumf = 0.0f;
+ 
+         FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
+@@ -478,12 +525,7 @@
+         // rollback snapshots for speculative decoding (see kernel_ssm_scan_impl)
+         const int32_t slot = n_t - 1 - t;
+         if (slot > 0 && slot < K) {
+-            device float * s_snapshot = (device float *) ((device char *) s_buff + (int64_t) slot*args.nb_s_slot);
+-            FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
+-                if (k < nk) {
+-                    s_snapshot[tiisg + k*N_SIMDWIDTH] = s[k];
+-                }
+-            }
++            ssm_scan_store_state(s_buff + (int64_t) slot*args.nb_s_slot, s, nk, tiisg, as_type<uint>(x_dt) ^ (uint) (ir*nr + i1));
+         }
+ 
+         sumf = simd_sum(sumf);
+@@ -498,13 +540,139 @@
+         C  += args.ns52;
+     }
+ 
+-    FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
+-        if (k < nk) {
+-            s_buff[tiisg + k*N_SIMDWIDTH] = s[k];
++    ssm_scan_store_state(s_buff, s, nk, tiisg, as_type<uint>(x_last) ^ (uint) (ir*nr + i1));
++}
++
++// store 4 contiguous state entries (f32, or f16 with stochastic rounding)
++static inline void ssm_scan_store_state4(device char * dst, float4 v, uint seed) {
++    if (FC_ssm_scan_d16 && FC_ssm_scan_rtn) {
++        *((device half4 *) dst) = (half4) v;
++    } else if (FC_ssm_scan_d16) {
++        half4 h;
++        FOR_UNROLL (short c = 0; c < 4; ++c) {
++            h[c] = ssm_f32_to_f16_sr(v[c], ssm_hash(seed + c));
+         }
++        *((device half4 *) dst) = h;
++    } else {
++        *((device float4 *) dst) = v;
+     }
+ }
+ 
++// few-token scan for d_state == 128 with a scalar decay per head (Mamba-2): each simdgroup takes NR4 rows,
++// each lane 4 contiguous entries of every row, so the state moves as float4/half4 with NR4 loads in flight
++// per lane, and exp(dt*A) is computed once per token instead of once per entry
++constant short NR4 = 4;
++
++kernel void kernel_ssm_scan_f32_rows4(
++        constant ggml_metal_kargs_ssm_scan & args,
++        device const void * src0,
++        device const void * src1,
++        device const void * src2,
++        device const void * src3,
++        device const void * src4,
++        device const void * src5,
++        device const void * src6,
++        device      float * dst,
++        device      char  * dst_s, // final state + snapshots: the tail of dst, or the recurrent cache when fused
++        uint3   tgpig[[threadgroup_position_in_grid]],
++        ushort  sgitg[[simdgroup_index_in_threadgroup]],
++        ushort  tiisg[[thread_index_in_simdgroup]],
++        ushort  sgptg[[simdgroups_per_threadgroup]]) {
++    const int32_t i1 = (tgpig.x*sgptg + sgitg)*NR4; // first row within the head
++    const int32_t ir = tgpig.y;                     // head
++    const int32_t i3 = tgpig.z;                     // seq
++
++    const int32_t nc  = 128;
++    const int32_t nr  = args.d_inner;
++    const int32_t nh  = args.n_head;
++    const int32_t ng  = args.n_group;
++    const int32_t n_t = args.n_seq_tokens;
++    const int32_t K   = args.K;
++
++    if (i1 >= nr) {
++        return;
++    }
++
++    device const int32_t * ids = (device const int32_t *) src6;
++
++    const short es_s = FC_ssm_scan_s16 ? 2 : 4;
++    const short es_d = FC_ssm_scan_d16 ? 2 : 4;
++
++    device       char * s_buff  = dst_s + ir*args.nb_s2 + i3*args.nb_s3 + args.s_off + (i1*nc + 4*tiisg)*es_d;
++    device const char * s0_buff = (device const char *) src0 + ir*args.nb02 + ids[i3]*args.nb03 + (i1*nc + 4*tiisg)*es_s;
++
++    const int32_t g = ir / (nh / ng);
++
++    const float A0 = ((device const float *) ((device const char *) src3 + ir*args.nb31))[0];
++
++    device const float * x  = (device const float *) ((device const char *) src1 + i1*args.nb10 + ir*args.nb11 + i3*args.nb13);
++    device const float * dt = (device const float *) ((device const char *) src2 + ir*args.nb20 + i3*args.nb22);
++    device const float * B  = (device const float *) ((device const char *) src4 + g*args.nb41 + i3*args.nb43) + 4*tiisg;
++    device const float * C  = (device const float *) ((device const char *) src5 + g*args.nb51 + i3*args.nb53) + 4*tiisg;
++
++    device float * y = dst + (i1 + ir*nr + i3*(n_t*nh*nr));
++
++    const short nrow = min((int32_t) NR4, nr - i1);
++
++    float4 s[NR4];
++
++    FOR_UNROLL (short r = 0; r < NR4; ++r) {
++        if (r < nrow) {
++            s[r] = FC_ssm_scan_s16 ? (float4) *((device const half4 *) (s0_buff + r*nc*es_s))
++                                   :          *((device const float4 *) (s0_buff + r*nc*es_s));
++        }
++    }
++
++    uint seed = 0; // stochastic rounding of an f16 state: per-step inputs, row and entry
++
++    for (int32_t t = 0; t < n_t; ++t) {
++        const float dt0  = dt[0];
++        const float dtsp = dt0 <= 20.0f ? log(1.0f + exp(dt0)) : dt0;
++        const float dA   = exp(dtsp * A0);
++
++        const float4 B4 = *((device const float4 *) B);
++        const float4 C4 = *((device const float4 *) C);
++
++        seed = as_type<uint>(dtsp) ^ as_type<uint>(B4[0]);
++
++        FOR_UNROLL (short r = 0; r < NR4; ++r) {
++            if (r < nrow) {
++                const float x_dt = x[r*args.nb10/4] * dtsp;
++
++                s[r] = s[r] * dA + B4 * x_dt;
++
++                const float sumf = simd_sum(dot(s[r], C4));
++
++                if (tiisg == 0) {
++                    y[t*nh*nr + r] = sumf;
++                }
++            }
++        }
++
++        // rollback snapshots for speculative decoding (see kernel_ssm_scan_impl)
++        const int32_t slot = n_t - 1 - t;
++        if (slot > 0 && slot < K) {
++            FOR_UNROLL (short r = 0; r < NR4; ++r) {
++                if (r < nrow) {
++                    ssm_scan_store_state4(s_buff + (int64_t) slot*args.nb_s_slot + r*nc*es_d, s[r],
++                            ssm_hash(seed ^ (uint) ((ir*nr + i1 + r)*nc + 4*tiisg)));
++                }
++            }
++        }
++
++        x  += args.ns12;
++        dt += args.ns21;
++        B  += args.ns42;
++        C  += args.ns52;
++    }
++
++    FOR_UNROLL (short r = 0; r < NR4; ++r) {
++        if (r < nrow) {
++            ssm_scan_store_state4(s_buff + r*nc*es_d, s[r], ssm_hash(seed ^ (uint) ((ir*nr + i1 + r)*nc + 4*tiisg)));
++        }
++    }
++}
++
+ typedef decltype(kernel_ssm_scan_impl<false>) kernel_ssm_scan_t;
+ 
+ template [[host_name("kernel_ssm_scan_f32")]]      kernel kernel_ssm_scan_t kernel_ssm_scan_impl<false>;
+@@ -559,8 +727,17 @@
+     device const int32_t * ids = (device const int32_t *) src6;
+ 
+     device const float * s0_buff = (device const float *) ((device const char *) src0 + ir*args.nb02 + ids[i3]*args.nb03);
+-    device       float * s_buff  = (device       float *) ((device       char *) dst  + ir*args.nb02 +      i3*args.nb03 + args.s_off);
++    device       float * s_buff  = (device       float *) ((device       char *) dst  + ir*args.nb_s2 +      i3*args.nb_s3 + args.s_off);
+ 
++    // an f16 input state is widened into the f32 state output first, which then serves as S_prev
++    if (FC_ssm_scan_s16) {
++        device const half * s0_h = (device const half *) s0_buff;
++        for (int32_t idx = tiitg; idx < nc*HD; idx += NSG*N_SIMDWIDTH) {
++            s_buff[idx] = (float) s0_h[idx];
++        }
++        threadgroup_barrier(mem_flags::mem_device);
++    }
++
+     device const float * A  = (device const float *) ((device const char *) src3 + ir*args.nb31);
+     device const float * x  = (device const float *) ((device const char *) src1 + ir*args.nb11 + i3*args.nb13);
+     device const float * dt = (device const float *) ((device const char *) src2 + ir*args.nb20 + i3*args.nb22);
+@@ -598,7 +775,7 @@
+         }
+         threadgroup_barrier(mem_flags::mem_threadgroup);
+ 
+-        device const float * state = t0 == 0 ? s0_buff : s_buff;
++        device const float * state = t0 == 0 && !FC_ssm_scan_s16 ? s0_buff : s_buff;
+ 
+         // Build one 8x64 row tile of SAM per simdgroup, then reuse it across every channel tile.
+         for (short ib = sgitg; ib < CS/TC; ib += NSG) {
+diff -ru a/src/llama-model.cpp b/src/llama-model.cpp
+--- a/src/llama-model.cpp	2026-10-28 09:53:29
++++ b/src/llama-model.cpp	2026-10-28 09:53:29
+@@ -2753,6 +2753,12 @@
+     return layers[il].rope_short;
+ }
+ 
++// TMP: LLAMA_SSM_STATE_TYPE=f16 stores the SSM state in f16 (the conv state stays f32)
++static ggml_type llama_ssm_state_type() {
++    const char * v = getenv("LLAMA_SSM_STATE_TYPE");
++    return v && strcmp(v, "f16") == 0 ? GGML_TYPE_F16 : GGML_TYPE_F32;
++}
++
+ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, const llama_cparams & cparams) const {
+     llama_memory_i * res;
+ 
+@@ -2892,7 +2898,7 @@
+                     /* attn_n_swa        */ hparams.n_swa,
+                     /* attn_swa_type     */ hparams.swa_type,
+                     /* recurrent_type_r  */ GGML_TYPE_F32,
+-                    /* recurrent_type_s  */ GGML_TYPE_F32,
++                    /* recurrent_type_s  */ llama_ssm_state_type(),
+                     /* recurrent_rs_size */ std::max((uint32_t) 1, cparams.n_seq_max),
+                     /* n_seq_max         */ cparams.n_seq_max,
+                     /* n_rs_seq          */ cparams.n_rs_seq,
+@@ -3081,7 +3087,7 @@
+                     res = new llama_memory_recurrent(
+                             *this,
+                             GGML_TYPE_F32,
+-                            GGML_TYPE_F32,
++                            llama_ssm_state_type(),
+                             cparams.offload_kqv,
+                             std::max((uint32_t) 1, cparams.n_seq_max),
+                             cparams.n_seq_max,
+@@ -3143,7 +3149,7 @@
+                             /* attn_n_ubatch     */ cparams.n_ubatch,
+                             /* attn_n_pad        */ 1,
+                             /* recurrent_type_r  */ GGML_TYPE_F32,
+-                            /* recurrent_type_s  */ GGML_TYPE_F32,
++                            /* recurrent_type_s  */ llama_ssm_state_type(),
+                             /* recurrent_rs_size */ std::max((uint32_t) 1, cparams.n_seq_max),
+                             /* n_seq_max         */ cparams.n_seq_max,
+                             /* n_rs_seq          */ cparams.n_rs_seq,
+@@ -3163,7 +3169,7 @@
+                             /* attn_n_swa        */ hparams.n_swa,
+                             /* attn_swa_type     */ hparams.swa_type,
+                             /* recurrent_type_k  */ GGML_TYPE_F32,
+-                            /* recurrent_type_v  */ GGML_TYPE_F32,
++                            /* recurrent_type_v  */ llama_ssm_state_type(),
+                             /* recurrent_kv_size */ std::max((uint32_t) 1, cparams.n_seq_max),
+                             /* n_seq_max         */ cparams.n_seq_max,
+                             /* n_rs_seq          */ cparams.n_rs_seq,
+@@ -3183,7 +3189,7 @@
+                             /* attn_n_swa        */ hparams.n_swa,
+                             /* attn_swa_type     */ hparams.swa_type,
+                             /* recurrent_type_k  */ GGML_TYPE_F32,
+-                            /* recurrent_type_v  */ GGML_TYPE_F32,
++                            /* recurrent_type_v  */ llama_ssm_state_type(),
+                             /* recurrent_kv_size */ std::max((uint32_t) 1, cparams.n_seq_max),
+                             /* n_seq_max         */ cparams.n_seq_max,
+                             /* n_rs_seq          */ cparams.n_rs_seq,
+diff -ru a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+--- a/tests/test-backend-ops.cpp	2026-10-28 09:53:29
++++ b/tests/test-backend-ops.cpp	2026-10-28 09:53:29
+@@ -4610,9 +4610,10 @@
+     const bool    xbc_overlap;
+     const int64_t K;
+     const bool    weak_decay;
++    const ggml_type type_s; // input state
+ 
+     std::string vars() override {
+-        return VARS_TO_STR10(type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, xbc_overlap, K, weak_decay);
++        return VARS_TO_STR11(type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, xbc_overlap, K, weak_decay, type_s);
+     }
+ 
+     test_ssm_scan(ggml_type type = GGML_TYPE_F32,
+@@ -4624,8 +4625,9 @@
+             int64_t n_seqs = 32,
+             bool xbc_overlap = false,
+             int64_t K = 1,
+-            bool weak_decay = false)
+-        : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), xbc_overlap(xbc_overlap), K(K), weak_decay(weak_decay) {}
++            bool weak_decay = false,
++            ggml_type type_s = GGML_TYPE_F32)
++        : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), xbc_overlap(xbc_overlap), K(K), weak_decay(weak_decay), type_s(type_s) {}
+ 
+     double max_nmse_err() override {
+         // SSD path (head_dim > 1) uses FP16 intermediates (M matrix, X_dt); Mamba-1 is pure FP32.
+@@ -4633,7 +4635,7 @@
+     }
+ 
+     ggml_tensor * build_graph(ggml_context * ctx) override {
+-        ggml_tensor * s   = ggml_new_tensor_4d(ctx, type, d_state,  head_dim,     n_head,       n_seqs);
++        ggml_tensor * s   = ggml_new_tensor_4d(ctx, type_s, d_state,  head_dim,     n_head,       n_seqs);
+         ggml_tensor * dt  = ggml_new_tensor_3d(ctx, type, n_head,   n_seq_tokens, n_seqs);
+         ggml_tensor * A   = ggml_new_tensor_2d(ctx, type, (head_dim > 1) ? 1 : d_state, n_head);
+         ggml_tensor * x;
+@@ -4808,19 +4810,26 @@
+     // -1: separate state tensor; >= 0: read the state from the cache itself, as build_rs does, with
+     // 0 = each seq reads its own cell, 1 = its own cell in snapshot slot 1, 2 = cells reversed (aliases another seq's write)
+     const int ids_mode;
++    const ggml_type type_s; // cache (and separate state): f16 is written with stochastic rounding when fused
+ 
+     ggml_tensor * cpy_node = nullptr;
+ 
+     std::string vars() override {
+-        return VARS_TO_STR9(type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, K, ids_mode);
++        return VARS_TO_STR10(type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, K, ids_mode, type_s);
+     }
+ 
+     test_ssm_scan_cache_fusion(ggml_type type = GGML_TYPE_F32,
+             int64_t d_state = 128, int64_t head_dim = 64, int64_t n_head = 16, int64_t n_group = 2,
+-            int64_t n_seq_tokens = 4, int64_t n_seqs = 1, int64_t K = 4, int ids_mode = -1)
++            int64_t n_seq_tokens = 4, int64_t n_seqs = 1, int64_t K = 4, int ids_mode = -1,
++            ggml_type type_s = GGML_TYPE_F32)
+         : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group),
+-          n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), K(K), ids_mode(ids_mode) {}
++          n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), K(K), ids_mode(ids_mode), type_s(type_s) {}
+ 
++    double max_nmse_err() override {
++        // the reference cpy rounds an f16 cache to nearest, the fused kernel stochastically: <= 1 ulp apart
++        return type_s == GGML_TYPE_F16 ? 1e-6 : 1e-7;
++    }
++
+     ggml_tensor * build_graph(ggml_context * ctx) override {
+         const int64_t D         = d_state * head_dim * n_head;
+         const int64_t n_written = std::min<int64_t>(n_seq_tokens, K);
+@@ -4831,10 +4840,10 @@
+ 
+         const int64_t n_slots = std::max<int64_t>(n_written, ids_mode == 1 ? 2 : 1);
+ 
+-        ggml_tensor * cache = ggml_new_tensor_2d(ctx, type, D, mem_size * n_slots);
++        ggml_tensor * cache = ggml_new_tensor_2d(ctx, type_s, D, mem_size * n_slots);
+         ggml_set_name(cache, "cache");
+ 
+-        ggml_tensor * s   = ids_mode < 0 ? ggml_new_tensor_4d(ctx, type, d_state, head_dim, n_head, n_seqs)
++        ggml_tensor * s   = ids_mode < 0 ? ggml_new_tensor_4d(ctx, type_s, d_state, head_dim, n_head, n_seqs)
+                                          : ggml_reshape_4d(ctx, cache, d_state, head_dim, n_head, mem_size * n_slots);
+         ggml_tensor * x   = ggml_new_tensor_4d(ctx, type, head_dim, n_head,       n_seq_tokens, n_seqs);
+         ggml_tensor * dt  = ggml_new_tensor_3d(ctx, type, n_head,   n_seq_tokens, n_seqs);
+@@ -4867,7 +4876,7 @@
+         cpy_node = cpy;
+ 
+         // read the cpy output so that neither the scan nor the cpy is the graph output (cont, since the cache view is strided)
+-        ggml_tensor * res = ggml_sum(ctx, ggml_cont(ctx, cpy));
++        ggml_tensor * res = ggml_sum(ctx, type_s == GGML_TYPE_F32 ? ggml_cont(ctx, cpy) : ggml_cast(ctx, cpy, GGML_TYPE_F32));
+         return res;
+     }
+ 
+@@ -10692,6 +10701,11 @@
+     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 65, 2)); // SSD one chunk + 1-token sequential tail
+     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 128, 2)); // SSD multi-chunk, no tail (exercises the chunk-to-chunk state handoff)
+     test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 128, 2, false, /*K=*/1, /*weak_decay=*/true)); // SSD multi-chunk, carried state not numerically negligible
++    // f16 input state: decode rows kernel, rollback snapshots, SSD chunks + sequential tail
++    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2,   1, 4, false, /*K=*/1, /*weak_decay=*/true, GGML_TYPE_F16));
++    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2,   4, 2, false, /*K=*/4, /*weak_decay=*/true, GGML_TYPE_F16));
++    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2, 300, 2, false, /*K=*/1, /*weak_decay=*/true, GGML_TYPE_F16));
++    test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 16, 2,  65, 2, false, /*K=*/1, /*weak_decay=*/true, GGML_TYPE_F16));
+ 
+     // ssm_scan + cache cpy fusion
+     test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 4, 1, 4));
+@@ -10712,6 +10726,8 @@
+         for (int64_t n_seqs : {1, 4, 16}) {
+             test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 1, n_seqs, 1, ids_mode)); // decode
+             test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 4, n_seqs, 4, ids_mode)); // verify with snapshots
++            test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 1, n_seqs, 1, ids_mode, GGML_TYPE_F16)); // f16 cache
++            test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 4, n_seqs, 4, ids_mode, GGML_TYPE_F16));
+         }
+     }
+ 
+@@ -12164,6 +12180,10 @@
+             test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F32,  GGML_TYPE_F32,  368, n, 4096, {1, 1}, {1, 1}));    // router
+             test_cases.emplace_back(new test_mul_mat(GGML_TYPE_Q8_0, GGML_TYPE_F32, 131072, n, 4096, {1, 1}, {1, 1}));  // lm head
+             test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 128, 8, n, 1));
++            for (ggml_type ts : {GGML_TYPE_F32, GGML_TYPE_F16}) {
++                // n sequences decoding one token each, state fused into the cache
++                test_cases.emplace_back(new test_ssm_scan(GGML_TYPE_F32, 128, 64, 128, 8, 1, n, false, 1, false, ts));
++            }
+             test_cases.emplace_back(new test_ssm_conv(GGML_TYPE_F32, {3 + n, 10240, 1, 1}, {4, 10240, 1, 1}));
+         }
+         return test_cases;

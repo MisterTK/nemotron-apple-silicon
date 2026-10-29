@@ -1,0 +1,32 @@
+diff --git a/src/models/mamba-base.cpp b/src/models/mamba-base.cpp
+index 370de0f01..61903ddf8 100644
+--- a/src/models/mamba-base.cpp
++++ b/src/models/mamba-base.cpp
+@@ -138,7 +138,7 @@ ggml_tensor * llm_build_mamba_base::build_mamba_layer(llm_graph_input_rs * inp,
+         // TODO: skip computing output earlier for unused tokens
+ 
+         y = ggml_add(ctx0, y, ggml_mul(ctx0, cur, layer.ssm_d));
+-        y = ggml_swiglu_split(ctx0, ggml_cont(ctx0, z), y);
++        y = ggml_swiglu_split(ctx0, ggml_is_contiguous(z) ? z : ggml_cont(ctx0, z), y);
+ 
+         // {d_inner, n_embd} @ {d_inner, n_seq_tokens, n_seqs} => {n_embd, n_seq_tokens, n_seqs}
+         cur = build_lora_mm(layer.ssm_out, y, layer.ssm_out_s);
+@@ -248,7 +248,8 @@ ggml_tensor * llm_build_mamba_base::build_mamba2_layer(llm_graph_input_rs * inp,
+                                        xBC->nb[1], xBC->nb[2], (d_inner + n_group * d_state) * ggml_element_size(xBC));
+ 
+         // {n_head, n_seq_tokens, n_seqs}
+-        dt = ggml_add(ctx0, ggml_cont(ctx0, dt), model.layers[il].ssm_dt_b);
++        // at decode (one token per sequence) the dt view is already contiguous; skip the copy
++        dt = ggml_add(ctx0, ggml_is_contiguous(dt) ? dt : ggml_cont(ctx0, dt), model.layers[il].ssm_dt_b);
+ 
+         ggml_tensor * A = model.layers[il].ssm_a;
+ 
+@@ -285,7 +286,7 @@ ggml_tensor * llm_build_mamba_base::build_mamba2_layer(llm_graph_input_rs * inp,
+ 
+         y = ggml_add(ctx0, y, ggml_mul(ctx0, x, model.layers[il].ssm_d));
+         cb(y, "mamba2_y_add_d", il);
+-        y = ggml_swiglu_split(ctx0, ggml_cont(ctx0, z), y);
++        y = ggml_swiglu_split(ctx0, ggml_is_contiguous(z) ? z : ggml_cont(ctx0, z), y);
+ 
+         // grouped RMS norm
+         if (model.layers[il].ssm_norm) {

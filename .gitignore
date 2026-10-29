@@ -1,0 +1,7 @@
+models/
+logs/
+llama.cpp*/
+pr/
+.remember/
+.DS_Store
+__pycache__/

@@ -1,0 +1,1131 @@
+diff --git a/ggml/src/ggml-metal/ggml-metal-device.cpp b/ggml/src/ggml-metal/ggml-metal-device.cpp
+index 25a8a3ef6..9bb9e6ba8 100644
+--- a/ggml/src/ggml-metal/ggml-metal-device.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-device.cpp
+@@ -589,7 +589,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_dsv4_hc(ggml_met
+ }
+ 
+ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv(
+-        ggml_metal_library_t lib, const ggml_tensor * op, int32_t nc, bool use_silu) {
++        ggml_metal_library_t lib, const ggml_tensor * op, int32_t nc, bool use_silu, bool use_bias) {
+     GGML_ASSERT(op->src[0]->type == GGML_TYPE_F32);
+     GGML_ASSERT(op->src[1]->type == GGML_TYPE_F32);
+ 
+@@ -606,13 +606,34 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv(
+     }
+ 
+     snprintf(base, 256, "kernel_ssm_conv_%s_%s%s", ggml_type_name(op->src[0]->type), ggml_type_name(op->src[1]->type), suffix);
+-    snprintf(name, 256, "%s_nc=%d_silu=%d", base, nc, use_silu ? 1 : 0);
++    snprintf(name, 256, "%s_nc=%d_silu=%d_bias=%d", base, nc, use_silu ? 1 : 0, use_bias ? 1 : 0);
+ 
+     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+     if (!res.pipeline) {
+         ggml_metal_cv_t cv = ggml_metal_cv_init();
+         ggml_metal_cv_set_bool(cv, use_silu, FC_SSM_CONV + 1);
+         ggml_metal_cv_set_int32(cv, nc,      FC_SSM_CONV + 2);
++        ggml_metal_cv_set_bool (cv, use_bias, FC_SSM_CONV + 3);
++
++        res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
++
++        ggml_metal_cv_free(cv);
++    }
++
++    return res;
++}
++
++ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_cat(ggml_metal_library_t lib, int32_t nc) {
++    char base[256];
++    char name[256];
++
++    snprintf(base, 256, "kernel_ssm_conv_cat_f32");
++    snprintf(name, 256, "%s_nc=%d", base, nc);
++
++    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
++    if (!res.pipeline) {
++        ggml_metal_cv_t cv = ggml_metal_cv_init();
++        ggml_metal_cv_set_int32(cv, nc, FC_SSM_CONV + 2);
+ 
+         res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
+ 
+@@ -623,7 +644,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv(
+ }
+ 
+ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_batched(
+-        ggml_metal_library_t lib, const ggml_tensor * op, int ssm_conv_bs, int32_t nc, bool use_silu) {
++        ggml_metal_library_t lib, const ggml_tensor * op, int ssm_conv_bs, int32_t nc, bool use_silu, bool use_bias) {
+     GGML_ASSERT(op->src[0]->type == GGML_TYPE_F32);
+     GGML_ASSERT(op->src[1]->type == GGML_TYPE_F32);
+ 
+@@ -639,7 +660,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_batched
+     }
+ 
+     snprintf(base, 256, "kernel_ssm_conv_%s_%s_batched%s", ggml_type_name(op->src[0]->type), ggml_type_name(op->src[1]->type), suffix);
+-    snprintf(name, 256, "%s_ssm_conv_bs=%d_nc=%d_silu=%d", base, ssm_conv_bs, nc, use_silu ? 1 : 0);
++    snprintf(name, 256, "%s_ssm_conv_bs=%d_nc=%d_silu=%d_bias=%d", base, ssm_conv_bs, nc, use_silu ? 1 : 0, use_bias ? 1 : 0);
+ 
+     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+     if (!res.pipeline) {
+@@ -648,6 +669,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_batched
+         ggml_metal_cv_set_int16(cv, ssm_conv_bs, FC_SSM_CONV + 0);
+         ggml_metal_cv_set_bool(cv, use_silu,     FC_SSM_CONV + 1);
+         ggml_metal_cv_set_int32(cv, nc,          FC_SSM_CONV + 2);
++        ggml_metal_cv_set_bool(cv, use_bias,     FC_SSM_CONV + 3);
+ 
+         res = ggml_metal_library_compile_pipeline(lib, base, name, cv);
+ 
+@@ -683,6 +705,19 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan(ggml_me
+     return res;
+ }
+ 
++ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_rows(ggml_metal_library_t lib, const ggml_tensor * op)  {
++    char base[256];
++
++    snprintf(base, 256, "kernel_ssm_scan_%s_rows", ggml_type_name(op->src[0]->type));
++
++    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, base);
++    if (!res.pipeline) {
++        res = ggml_metal_library_compile_pipeline(lib, base, base, nullptr);
++    }
++
++    return res;
++}
++
+ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_ssd_mma(ggml_metal_library_t lib, const ggml_tensor * op)  {
+     char base[256];
+     char name[256];
+diff --git a/ggml/src/ggml-metal/ggml-metal-device.h b/ggml/src/ggml-metal/ggml-metal-device.h
+index dd7cdb958..8a732967b 100644
+--- a/ggml/src/ggml-metal/ggml-metal-device.h
++++ b/ggml/src/ggml-metal/ggml-metal-device.h
+@@ -128,10 +128,12 @@ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_soft_max
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_lightning_indexer (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_top_k_mask        (ggml_metal_library_t lib, const struct ggml_tensor * op, bool fill, bool has_score, bool has_blocks, bool has_extra, bool vec);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_dsv4_hc           (ggml_metal_library_t lib, const struct ggml_tensor * op);
+-struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv          (ggml_metal_library_t lib, const struct ggml_tensor * op, int32_t nc, bool use_silu);
+-struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_batched  (ggml_metal_library_t lib, const struct ggml_tensor * op, int ssm_conv_bs, int32_t nc, bool use_silu);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv          (ggml_metal_library_t lib, const struct ggml_tensor * op, int32_t nc, bool use_silu, bool use_bias);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_cat      (ggml_metal_library_t lib, int32_t nc);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_batched  (ggml_metal_library_t lib, const struct ggml_tensor * op, int ssm_conv_bs, int32_t nc, bool use_silu, bool use_bias);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan          (ggml_metal_library_t lib, const struct ggml_tensor * op, bool tail);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_ssd_mma  (ggml_metal_library_t lib, const struct ggml_tensor * op);
++struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_rows     (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_rwkv              (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_gated_delta_net   (ggml_metal_library_t lib, const struct ggml_tensor * op);
+ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_solve_tri         (ggml_metal_library_t lib, const struct ggml_tensor * op);
+diff --git a/ggml/src/ggml-metal/ggml-metal-fusion.cpp b/ggml/src/ggml-metal/ggml-metal-fusion.cpp
+index 020cad29d..e42475039 100644
+--- a/ggml/src/ggml-metal/ggml-metal-fusion.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-fusion.cpp
+@@ -165,16 +165,31 @@ static bool ggml_metal_fusion_check_ssm_conv_silu(
+         const int                     * node_idxs,
+               int                       idx,
+               ggml_metal_fusion_mode    mode) {
+-    GGML_UNUSED(fusion);
+     GGML_UNUSED(gf);
+     GGML_UNUSED(node_idxs);
+     GGML_UNUSED(idx);
+     GGML_UNUSED(mode);
+ 
+     const ggml_tensor * conv = nodes[0];
+-    const ggml_tensor * un   = nodes[1];
++    const ggml_tensor * un   = nodes[fusion->ops.size() - 1];
++
++    // optional per-channel bias between the conv and the silu (Mamba-2)
++    if (fusion->ops.size() == 3) {
++        const ggml_tensor * add  = nodes[1];
++        const ggml_tensor * bias = add->src[1];
++        if (add->op != GGML_OP_ADD || add->src[0] != conv || un->src[0] != add || add->type != GGML_TYPE_F32 ||
++            bias->type != GGML_TYPE_F32 || !ggml_is_contiguous(bias) || ggml_nelements(bias) != conv->ne[0] ||
++            !ggml_are_same_shape(add, conv)) {
++            return false;
++        }
++        conv = add; // the silu below reads the biased conv output
++    }
+ 
+-    if (conv->op != GGML_OP_SSM_CONV || un->op != GGML_OP_UNARY || un->src[0] != conv || un->src[1]) {
++    if (conv->op != GGML_OP_SSM_CONV && conv->op != GGML_OP_ADD) {
++        return false;
++    }
++
++    if (un->op != GGML_OP_UNARY || un->src[0] != conv || un->src[1]) {
+         return false;
+     }
+ 
+@@ -288,6 +303,217 @@ static bool ggml_metal_fusion_check_gdn_cache(
+     return true;
+ }
+ 
++// SSM_SCAN + CPY: the scan writes its final state (and rollback snapshots) straight into the
++// recurrent cache instead of the tail of its output, and the cpy is skipped
++static bool ggml_metal_fusion_check_ssm_scan_cache(
++        const ggml_metal_fusion       * fusion,
++        const ggml_tensor * const     * nodes,
++        const ggml_cgraph             * gf,
++        const int                     * node_idxs,
++              int                       idx,
++              ggml_metal_fusion_mode    mode) {
++    GGML_UNUSED(gf);
++    GGML_UNUSED(node_idxs);
++    GGML_UNUSED(idx);
++
++    const ggml_tensor * scan = nodes[0];
++    const ggml_tensor * cpy  = nodes[fusion->ops.size() - 1];
++
++    // the graph optimizer also sees build_rs's extra-state GET_ROWS + CPY between the scan and the
++    // state cpy; at decode they have no elements, so the encoders (which skip empty nodes) see SSM_SCAN + CPY
++    if (fusion->ops.size() == 4 && (!ggml_is_empty(nodes[1]) || !ggml_is_empty(nodes[2]))) {
++        return false;
++    }
++
++    if (scan->type != GGML_TYPE_F32 || (scan->flags & GGML_TENSOR_FLAG_OUTPUT)) {
++        return false;
++    }
++
++    if (cpy->op != GGML_OP_CPY || (cpy->flags & GGML_TENSOR_FLAG_OUTPUT)) {
++        return false;
++    }
++
++    const ggml_tensor * x = scan->src[1];
++
++    const int64_t D         = scan->src[0]->ne[0]*scan->src[0]->ne[1]*scan->src[0]->ne[2]; // d_state*head_dim*n_head
++    const int64_t n_tokens  = x->ne[2];
++    const int64_t n_seqs    = x->ne[3];
++    const int64_t K         = ggml_get_op_params_i32(scan, 0);
++    const int64_t n_written = std::min<int64_t>(n_tokens, K);
++    const size_t  tail_off  = ggml_nelements(x)*sizeof(float);
++
++    const ggml_tensor * src = cpy->src[0]; // scan state tail view
++    const ggml_tensor * dst = cpy->src[1]; // cache view
++
++    if (src->op != GGML_OP_VIEW || src->view_src != scan ||
++        src->view_offs != tail_off || !ggml_is_contiguous(src) ||
++        ggml_nelements(src) != D*n_seqs*n_written) {
++        return false;
++    }
++
++    const int64_t expected_ne[GGML_MAX_DIMS] = { D, n_seqs, n_written, 1 };
++    if (dst->type != GGML_TYPE_F32 ||
++        !std::equal(expected_ne, expected_ne + GGML_MAX_DIMS, dst->ne) ||
++        dst->nb[0] != ggml_type_size(GGML_TYPE_F32) ||
++        dst->nb[1] != ggml_row_size(GGML_TYPE_F32, D)) {
++        return false;
++    }
++
++    if (mode == GGML_METAL_FUSION_FULL) {
++        // the cache must be allocated so the kernel can write straight to its buffer
++        if (dst->data == nullptr) {
++            return false;
++        }
++
++        // each sequence reads its whole state into registers before writing, so in-place is safe for a
++        // single sequence. with several, one sequence may read a cache row that another one writes
++        // (cell swaps, the shared zero state); the row ids are graph inputs that are already set when the
++        // graph is encoded, so check them on the host (shared buffers only) and skip the fusion if so
++        if (n_seqs > 1) {
++            const ggml_tensor * ids = scan->src[6];
++            if (ids == nullptr || ids->type != GGML_TYPE_I32 || ids->buffer == nullptr || ids->data == nullptr ||
++                strncmp(ggml_backend_buffer_name(ids->buffer), "MTL", 3) != 0 ||
++                !ggml_metal_buffer_is_shared((ggml_metal_buffer_t) ids->buffer->context)) {
++                return false;
++            }
++
++            const int64_t row_size = dst->nb[1];
++            const int64_t head     = dst->view_offs / row_size;    // first written row
++            const int64_t slot_rows = dst->nb[2] / row_size;       // rows between snapshot slots (mem_size)
++            const int32_t * rows = (const int32_t *) ids->data;
++
++            for (int64_t i = 0; i < n_seqs; ++i) {
++                const int64_t slot = rows[i] / slot_rows;
++                const int64_t cell = rows[i] % slot_rows - head;
++                if (slot < n_written && cell >= 0 && cell < n_seqs && cell != i) {
++                    return false;
++                }
++            }
++        }
++    }
++
++    return true;
++}
++
++// CONCAT(conv state, x) + CPY x m (state + rollback snapshots into the cache) + SSM_CONV + ADD(bias) + UNARY(silu)
++// the fused kernel keeps each channel's conv window in registers, so the concat result is never materialized
++static bool ggml_metal_fusion_check_ssm_conv_cat(
++        const ggml_metal_fusion       * fusion,
++        const ggml_tensor * const     * nodes,
++        const ggml_cgraph             * gf,
++        const int                     * node_idxs,
++              int                       idx,
++              ggml_metal_fusion_mode    mode) {
++    GGML_UNUSED(mode);
++
++    const int n = (int) fusion->ops.size();
++    const int m = n - 4; // number of cache cpys
++
++    const ggml_tensor * cat  = nodes[0];
++    const ggml_tensor * conv = nodes[m + 1];
++    const ggml_tensor * add  = nodes[m + 2];
++    const ggml_tensor * un   = nodes[m + 3];
++
++    if (cat->type != GGML_TYPE_F32 || ggml_get_op_params_i32(cat, 0) != 0 || cat->ne[3] != 1) {
++        return false;
++    }
++
++    const ggml_tensor * st = cat->src[0]; // conv state (d_conv - 1, n_ch, n_seqs)
++    const ggml_tensor * x  = cat->src[1]; // new tokens (n_t, n_ch, n_seqs)
++
++    const int64_t ncs  = st->ne[0];
++    const int64_t n_t  = x->ne[0];
++    const int64_t n_ch = cat->ne[1];
++    const int64_t n_s  = cat->ne[2];
++
++    if (st->type != GGML_TYPE_F32 || x->type != GGML_TYPE_F32 || ncs < 1 || ncs > 3 || n_t < 1 || n_t > 16 || m > n_t) {
++        return false;
++    }
++
++    if (conv->op != GGML_OP_SSM_CONV || conv->src[0] != cat) {
++        return false;
++    }
++
++    const ggml_tensor * cw = conv->src[1];
++    if (cw->type != GGML_TYPE_F32 || cw->ne[0] != ncs + 1 || cw->ne[1] != n_ch || !ggml_is_contiguous(cw)) {
++        return false;
++    }
++
++    const ggml_tensor * bias = add->src[1];
++    if (add->op != GGML_OP_ADD || add->src[0] != conv || add->type != GGML_TYPE_F32 || !ggml_are_same_shape(add, conv) ||
++        bias->type != GGML_TYPE_F32 || !ggml_is_contiguous(bias) || ggml_nelements(bias) != n_ch) {
++        return false;
++    }
++
++    if (un->op != GGML_OP_UNARY || ggml_get_unary_op(un) != GGML_UNARY_OP_SILU || un->src[0] != add || un->type != GGML_TYPE_F32) {
++        return false;
++    }
++
++    // the intermediates must have no other consumers (the concat is used by the m cpy views and the conv)
++    if (ggml_node_get_use_count(gf, node_idxs[idx]) != m + 1 ||
++        ggml_node_get_use_count(gf, node_idxs[idx + m + 1]) != 1 ||
++        ggml_node_get_use_count(gf, node_idxs[idx + m + 2]) != 1) {
++        return false;
++    }
++
++    for (int j = 0; j < n - 1; ++j) {
++        if (nodes[j]->flags & GGML_TENSOR_FLAG_OUTPUT) {
++            return false;
++        }
++    }
++
++    // cpy j stores the window ending j tokens before the last one into snapshot slot j of the cache
++    const ggml_tensor * cache = nullptr;
++    size_t off0  = 0;
++    size_t slot  = 0;
++    for (int j = 0; j < m; ++j) {
++        const ggml_tensor * cpy = nodes[1 + j];
++        if (cpy->op != GGML_OP_CPY) {
++            return false;
++        }
++
++        const ggml_tensor * v = cpy->src[0];
++        if (v->op != GGML_OP_VIEW || v->view_src != cat || v->view_offs != (size_t) (n_t - j)*cat->nb[0] ||
++            v->ne[0] != ncs || v->ne[1] != n_ch || v->ne[2] != n_s || v->nb[1] != cat->nb[1] || v->nb[2] != cat->nb[2]) {
++            return false;
++        }
++
++        const ggml_tensor * d = cpy->src[1];
++        if (d->type != GGML_TYPE_F32 || d->op != GGML_OP_VIEW || d->view_src == nullptr ||
++            d->ne[0] != ncs*n_ch || d->ne[1] != n_s || d->ne[2] != 1 || d->nb[0] != sizeof(float)) {
++            return false;
++        }
++
++        if (j == 0) {
++            cache = d->view_src;
++            off0  = d->view_offs;
++        } else {
++            if (d->view_src != cache || d->nb[1] != nodes[1]->src[1]->nb[1] || d->view_offs <= off0) {
++                return false;
++            }
++            if (j == 1) {
++                slot = d->view_offs - off0;
++            } else if (d->view_offs != off0 + j*slot) {
++                return false;
++            }
++        }
++    }
++
++    // the state is read before the cache is written only within a thread, so it must not come from the cache itself
++    for (const ggml_tensor * t = st; t; t = t->view_src) {
++        if (t == cache) {
++            return false;
++        }
++    }
++    for (const ggml_tensor * t = x; t; t = t->view_src) {
++        if (t == cache) {
++            return false;
++        }
++    }
++
++    return true;
++}
++
+ // MUL + SIN + SQR + MUL + ADD (snake activation)
+ static bool ggml_metal_fusion_check_snake(
+         const ggml_metal_fusion       * fusion,
+@@ -730,7 +956,24 @@ static const std::vector<ggml_op> ops_snake = { GGML_OP_MUL, GGML_OP_SIN, GGML_O
+ 
+ static const std::vector<ggml_op> ops_gdn_cache = { GGML_OP_GATED_DELTA_NET, GGML_OP_CPY };
+ 
++
++static const std::vector<ggml_op> ops_ssm_scan_cache = { GGML_OP_SSM_SCAN, GGML_OP_CPY };
++static const std::vector<ggml_op> ops_ssm_scan_rs_cache = { GGML_OP_SSM_SCAN, GGML_OP_GET_ROWS, GGML_OP_CPY, GGML_OP_CPY };
++
++static const std::vector<ggml_op> ops_ssm_conv_cat_1 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_2 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_3 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_4 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_5 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_6 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_7 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_8 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_9 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_cat_10 = { GGML_OP_CONCAT, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_CPY, GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
++
++
+ static const std::vector<ggml_op> ops_ssm_conv_silu = { GGML_OP_SSM_CONV, GGML_OP_UNARY };
++static const std::vector<ggml_op> ops_ssm_conv_add_silu = { GGML_OP_SSM_CONV, GGML_OP_ADD, GGML_OP_UNARY };
+ 
+ static const std::vector<ggml_op> ops_moe_reduce_2 = {
+     GGML_OP_MUL, GGML_OP_VIEW, GGML_OP_VIEW, GGML_OP_ADD
+@@ -788,6 +1031,19 @@ static const std::vector<ggml_metal_fusion> ggml_metal_fusions = {
+     { GGML_METAL_FUSION_MOE_REDUCE,     ops_moe_reduce_6,           {},     true,  ggml_metal_fusion_check_moe_reduce },
+     { GGML_METAL_FUSION_MOE_REDUCE,     ops_moe_reduce_7,           {},     true,  ggml_metal_fusion_check_moe_reduce },
+     { GGML_METAL_FUSION_MOE_REDUCE,     ops_moe_reduce_8,           {},     true,  ggml_metal_fusion_check_moe_reduce },
++    { GGML_METAL_FUSION_SSM_SCAN_CACHE, ops_ssm_scan_cache,         {},     true,  ggml_metal_fusion_check_ssm_scan_cache },
++    { GGML_METAL_FUSION_SSM_SCAN_CACHE, ops_ssm_scan_rs_cache,      {},     true,  ggml_metal_fusion_check_ssm_scan_cache },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_1,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_2,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_3,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_4,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_5,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_6,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_7,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_8,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_9,         {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_CAT,   ops_ssm_conv_cat_10,        {},     true,  ggml_metal_fusion_check_ssm_conv_cat },
++    { GGML_METAL_FUSION_SSM_CONV_SILU,  ops_ssm_conv_add_silu,      {},     false, ggml_metal_fusion_check_ssm_conv_silu },
+     { GGML_METAL_FUSION_SSM_CONV_SILU,  ops_ssm_conv_silu,          {},     false, ggml_metal_fusion_check_ssm_conv_silu },
+     { GGML_METAL_FUSION_MUL_MAT_ADD,    ops_mul_mat_add,            {},     false, ggml_metal_fusion_check_mul_mat_add },
+ };
+@@ -1051,6 +1307,13 @@ static bool ggml_metal_fusion_check_memory_ranges(
+                     continue;
+                 }
+ 
++                // the scan reads its state from the cache it writes; the check callback has already
++                // verified that no sequence reads a row another one writes
++                if (fusion->id == GGML_METAL_FUSION_SSM_SCAN_CACHE && j == 0 && s == 0 &&
++                    src->view_src != nullptr && src->view_src == dst->view_src) {
++                    continue;
++                }
++
+                 if (nodes_overlap(dst, src) && !is_intermediate(src, nodes, j)) {
+                     return false;
+                 }
+diff --git a/ggml/src/ggml-metal/ggml-metal-fusion.h b/ggml/src/ggml-metal/ggml-metal-fusion.h
+index 5d994c249..9e896f8e2 100644
+--- a/ggml/src/ggml-metal/ggml-metal-fusion.h
++++ b/ggml/src/ggml-metal/ggml-metal-fusion.h
+@@ -42,6 +42,8 @@ typedef enum ggml_metal_fusion_id {
+     GGML_METAL_FUSION_TOPK_MOE,     // SOFT_MAX + ARGSORT + GET_ROWS + norm/scale (MoE routing)
+     GGML_METAL_FUSION_MOE_REDUCE,   // MUL + expert VIEWs + ADD chain (MoE output reduction)
+     GGML_METAL_FUSION_SSM_CONV_SILU, // SSM_CONV + UNARY (silu)
++    GGML_METAL_FUSION_SSM_SCAN_CACHE, // SSM_SCAN + CPY (write the final state and snapshots into the recurrent cache)
++    GGML_METAL_FUSION_SSM_CONV_CAT,   // CONCAT + CPY x m + SSM_CONV + ADD + UNARY (conv state in registers, written to the cache)
+     GGML_METAL_FUSION_MUL_MAT_ADD,  // MUL_MAT + ADD (residual added in the few-row MMA store)
+ } ggml_metal_fusion_id;
+ 
+diff --git a/ggml/src/ggml-metal/ggml-metal-impl.h b/ggml/src/ggml-metal/ggml-metal-impl.h
+index 6e566084a..e530b7767 100644
+--- a/ggml/src/ggml-metal/ggml-metal-impl.h
++++ b/ggml/src/ggml-metal/ggml-metal-impl.h
+@@ -934,6 +934,25 @@ typedef struct {
+     uint64_t nb2;
+ } ggml_metal_kargs_ssm_conv;
+ 
++// CONCAT(conv state, x) + cache CPY(s) + SSM_CONV + bias + silu (Mamba-2 decode / speculative verify)
++typedef struct {
++    int32_t  n_t;     // tokens per sequence
++    int32_t  n_ch;    // channels
++    int32_t  n_slots; // snapshot slots written to the cache (1 at plain decode)
++    uint64_t nbs0;    // conv state (d_conv - 1, n_ch, n_seqs)
++    uint64_t nbs1;
++    uint64_t nbs2;
++    uint64_t nbx0;    // new tokens (n_t, n_ch, n_seqs), usually a transposed view
++    uint64_t nbx1;
++    uint64_t nbx2;
++    uint64_t nb11;    // conv weights row
++    uint64_t nb0;     // dst (n_ch, n_t, n_seqs)
++    uint64_t nb1;
++    uint64_t nb2;
++    uint64_t nbc1;    // cache: sequence row
++    uint64_t nbc2;    // cache: snapshot slot
++} ggml_metal_kargs_ssm_conv_cat;
++
+ typedef struct {
+     int64_t  d_state;
+     int64_t  d_inner;
+@@ -969,6 +988,7 @@ typedef struct {
+     uint64_t ns52;
+     uint64_t nb53;
+     uint64_t nb0;
++    uint64_t nb_s_slot; // byte stride between rollback snapshot slots of the state output (rows kernel)
+ } ggml_metal_kargs_ssm_scan;
+ 
+ typedef struct {
+diff --git a/ggml/src/ggml-metal/ggml-metal-ops.cpp b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+index 14712c3e8..4ee2d8fb7 100644
+--- a/ggml/src/ggml-metal/ggml-metal-ops.cpp
++++ b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+@@ -561,9 +561,70 @@ int ggml_metal_op_encode(ggml_metal_op_t ctx, int idx) {
+     return res;
+ }
+ 
++// CONCAT + cache CPY x m + SSM_CONV + ADD + UNARY (see GGML_METAL_FUSION_SSM_CONV_CAT)
++static int ggml_metal_op_ssm_conv_cat(ggml_metal_op_t ctx, int idx, int n_fuse) {
++    const int m = n_fuse - 4;
++
++    const ggml_tensor * cat  = ctx->node(idx);
++    const ggml_tensor * st   = cat->src[0];
++    const ggml_tensor * x    = cat->src[1];
++    const ggml_tensor * conv = ctx->node(idx + m + 1);
++    const ggml_tensor * add  = ctx->node(idx + m + 2);
++    const ggml_tensor * un   = ctx->node(idx + m + 3);
++    const ggml_tensor * c0   = ctx->node(idx + 1)->src[1]; // cache view of slot 0
++
++    ggml_metal_kargs_ssm_conv_cat args = {
++        /*.n_t     =*/ (int32_t) x->ne[0],
++        /*.n_ch    =*/ (int32_t) cat->ne[1],
++        /*.n_slots =*/ m,
++        /*.nbs0    =*/ st->nb[0],
++        /*.nbs1    =*/ st->nb[1],
++        /*.nbs2    =*/ st->nb[2],
++        /*.nbx0    =*/ x->nb[0],
++        /*.nbx1    =*/ x->nb[1],
++        /*.nbx2    =*/ x->nb[2],
++        /*.nb11    =*/ conv->src[1]->nb[1],
++        /*.nb0     =*/ un->nb[0],
++        /*.nb1     =*/ un->nb[1],
++        /*.nb2     =*/ un->nb[2],
++        /*.nbc1    =*/ c0->nb[1],
++        /*.nbc2    =*/ m > 1 ? ctx->node(idx + 2)->src[1]->view_offs - c0->view_offs : 0,
++    };
++
++    auto pipeline = ggml_metal_library_get_pipeline_ssm_conv_cat(ctx->lib, (int32_t) conv->src[1]->ne[0]);
++
++    ggml_metal_encoder_t enc = ctx->enc;
++    ggml_metal_encoder_set_pipeline(enc, pipeline);
++    ggml_metal_encoder_set_bytes   (enc, &args, sizeof(args), 0);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(st),           1);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(x),            2);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(conv->src[1]), 3);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(add->src[1]),  4);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(un),           5);
++    ggml_metal_encoder_set_buffer  (enc, ggml_metal_get_buffer_id(c0),           6);
++
++    const int nth = 256;
++    ggml_metal_encoder_dispatch_threadgroups(enc, (cat->ne[1] + nth - 1)/nth, 1, cat->ne[2], nth, 1, 1);
++
++    if (ggml_metal_fusion_info_debug(ctx->finfo) > 1) {
++        GGML_LOG_DEBUG("%s: fuse: CONCAT + CPY x %d + SSM_CONV + ADD + UNARY\n", __func__, m);
++    }
++
++    return n_fuse;
++}
++
+ int ggml_metal_op_concat(ggml_metal_op_t ctx, int idx) {
+     ggml_tensor * op = ctx->node(idx);
+ 
++    if (ctx->use_fusion()) {
++        int n = 1;
++        const ggml_metal_fusion * fusion = ctx->can_fuse(idx, GGML_METAL_FUSION_FULL, &n);
++        if (fusion && ggml_metal_fusion_get_id(fusion) == GGML_METAL_FUSION_SSM_CONV_CAT) {
++            ctx->count_fusions(fusion);
++            return ggml_metal_op_ssm_conv_cat(ctx, idx, n);
++        }
++    }
++
+     ggml_metal_library_t lib = ctx->lib;
+     ggml_metal_encoder_t enc = ctx->enc;
+ 
+@@ -1794,6 +1855,7 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
+ 
+     int n_fuse = 1;
+     bool use_silu = false;
++    bool use_bias = false;
+ 
+     if (ctx->use_fusion()) {
+         int n = 1;
+@@ -1801,6 +1863,7 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
+         if (fusion && ggml_metal_fusion_get_id(fusion) == GGML_METAL_FUSION_SSM_CONV_SILU) {
+             n_fuse = n;
+             use_silu = true;
++            use_bias = n == 3; // SSM_CONV + ADD(bias) + SILU
+ 
+             ctx->count_fusions(fusion);
+         }
+@@ -1840,28 +1903,31 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
+         else if (ne1 > 4  ) BATCH_SIZE = 8;
+         else                BATCH_SIZE = 2;
+ 
+-        auto pipeline = ggml_metal_library_get_pipeline_ssm_conv_batched(lib, op, BATCH_SIZE, (int32_t) ne10, use_silu);
++        auto pipeline = ggml_metal_library_get_pipeline_ssm_conv_batched(lib, op, BATCH_SIZE, (int32_t) ne10, use_silu, use_bias);
+ 
+         ggml_metal_encoder_set_pipeline(enc, pipeline);
+         ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+         ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op->src[0]), 1);
+         ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op->src[1]), 2);
+         ggml_metal_encoder_set_buffer(enc, bid_dst, 3);
++        ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(use_bias ? ctx->node(idx + 1)->src[1] : op->src[1]), 4);
+ 
+         // Dispatch: ne01 rows, ceil(ne1/BATCH_SIZE) token batches, ne02 sequences
+         // Each threadgroup has BATCH_SIZE threads, each handling one token
+         const int n_token_batches = (ne1 + BATCH_SIZE - 1) / BATCH_SIZE;
+         ggml_metal_encoder_dispatch_threadgroups(enc, ne01, n_token_batches, ne02, BATCH_SIZE, 1, 1);
+     } else {
+-        auto pipeline = ggml_metal_library_get_pipeline_ssm_conv(lib, op, (int32_t) ne10, use_silu);
++        auto pipeline = ggml_metal_library_get_pipeline_ssm_conv(lib, op, (int32_t) ne10, use_silu, use_bias);
+ 
+         ggml_metal_encoder_set_pipeline(enc, pipeline);
+         ggml_metal_encoder_set_bytes(enc, &args, sizeof(args), 0);
+         ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op->src[0]), 1);
+         ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(op->src[1]), 2);
+         ggml_metal_encoder_set_buffer(enc, bid_dst, 3);
++        ggml_metal_encoder_set_buffer(enc, ggml_metal_get_buffer_id(use_bias ? ctx->node(idx + 1)->src[1] : op->src[1]), 4);
+ 
+-        ggml_metal_encoder_dispatch_threadgroups(enc, ne01, ne1, ne02, 1, 1, 1);
++        const int nth = 256;
++        ggml_metal_encoder_dispatch_threadgroups(enc, (ne01 + nth - 1)/nth, ne1, ne02, nth, 1, 1);
+     }
+ 
+     if (n_fuse > 1 && ggml_metal_fusion_info_debug(ctx->finfo) > 1) {
+@@ -1951,6 +2017,7 @@ int ggml_metal_op_ssm_scan(ggml_metal_op_t ctx, int idx) {
+         /*.ns52         =*/ nb52/nb50,
+         /*.nb53         =*/ nb53,
+         /*.nb0          =*/ nb0,
++        /*.nb_s_slot    =*/ (uint64_t) n_seqs*nb03,
+     };
+ 
+     constexpr int64_t CHUNK = OP_SSM_SCAN_SSD_CS;
+@@ -1982,6 +2049,39 @@ int ggml_metal_op_ssm_scan(ggml_metal_op_t ctx, int idx) {
+         ggml_metal_encoder_dispatch_threadgroups(enc, n_tg_x, n_head, n_seqs, nth, 1, 1);
+     };
+ 
++    // few tokens (decode, speculative verify): register-resident state, one simdgroup per head_dim row
++    if (!use_mma && d_state % 32 == 0 && d_state <= 256) {
++        // when fused with the trailing cache cpy, the final state and snapshots are written straight
++        // into the recurrent cache and the cpy is skipped (see GGML_METAL_FUSION_SSM_SCAN_CACHE)
++        ggml_metal_buffer_id bid_s = ggml_metal_get_buffer_id(op);
++        int n_fuse = 1;
++
++        if (ctx->use_fusion()) {
++            int n = 1;
++            const ggml_metal_fusion * fusion = ctx->can_fuse(idx, GGML_METAL_FUSION_FULL, &n);
++
++            if (fusion && ggml_metal_fusion_get_id(fusion) == GGML_METAL_FUSION_SSM_SCAN_CACHE) {
++                const ggml_tensor * dst_cache = ctx->node(idx + 1)->src[1]; // cache view
++
++                bid_s          = ggml_metal_get_buffer_id(dst_cache);
++                args.s_off     = 0;
++                args.nb_s_slot = dst_cache->nb[2];
++                n_fuse = 2;
++
++                ctx->count_fusions(fusion);
++
++                if (ggml_metal_fusion_info_debug(ctx->finfo) > 1) {
++                    GGML_LOG_DEBUG("%s: fuse: SSM_SCAN + CPY\n", __func__);
++                }
++            }
++        }
++
++        const int64_t nsg = 8; // head_dim rows per threadgroup
++        ggml_metal_encoder_set_buffer(enc, bid_s, 9);
++        dispatch(ggml_metal_library_get_pipeline_ssm_scan_rows(lib, op), nsg*32, (d_inner + nsg - 1)/nsg);
++        return n_fuse;
++    }
++
+     if (!use_mma) {
+         dispatch(ggml_metal_library_get_pipeline_ssm_scan(lib, op, false), d_state, d_inner);
+         return 1;
+diff --git a/ggml/src/ggml-metal/kernels/ssm.metal b/ggml/src/ggml-metal/kernels/ssm.metal
+index b21c53b74..33af6a931 100644
+--- a/ggml/src/ggml-metal/kernels/ssm.metal
++++ b/ggml/src/ggml-metal/kernels/ssm.metal
+@@ -2,6 +2,7 @@
+ 
+ constant bool FC_ssm_conv_silu [[function_constant(FC_SSM_CONV + 1)]];
+ constant int  FC_ssm_conv_nc    [[function_constant(FC_SSM_CONV + 2)]];
++constant bool FC_ssm_conv_bias  [[function_constant(FC_SSM_CONV + 3)]]; // fused per-channel bias add (before silu)
+ 
+ // ref: ggml.c:ggml_compute_forward_ssm_conv_f32
+ kernel void kernel_ssm_conv_f32_f32(
+@@ -9,11 +10,17 @@ kernel void kernel_ssm_conv_f32_f32(
+         device const  void * src0,
+         device const  void * src1,
+         device       float * dst,
++        device const float * bias,
+         uint3 tgpig[[threadgroup_position_in_grid]],
+         uint3 tpitg[[thread_position_in_threadgroup]],
+         uint3   ntg[[threads_per_threadgroup]]) {
+-    const int64_t ir = tgpig.x;
++    // one row (channel) per thread: a 1-thread threadgroup per row leaves the GPU mostly idle at decode
++    const int64_t ir = (int64_t) tgpig.x*ntg.x + tpitg.x;
+     const int64_t i2 = tgpig.y;
++
++    if (ir >= args.ne01) {
++        return;
++    }
+     const int64_t i3 = tgpig.z;
+ 
+     const int64_t nc  = FC_ssm_conv_nc;
+@@ -32,6 +39,10 @@ kernel void kernel_ssm_conv_f32_f32(
+         sumf += s[i0] * c[i0];
+     }
+ 
++    if (FC_ssm_conv_bias) {
++        sumf += bias[ir];
++    }
++
+     x[0] = FC_ssm_conv_silu ? sumf/(1.0f + exp(-sumf)) : sumf;
+ }
+ 
+@@ -40,11 +51,17 @@ kernel void kernel_ssm_conv_f32_f32_4(
+         device const  void * src0,
+         device const  void * src1,
+         device       float * dst,
++        device const float * bias,
+         uint3 tgpig[[threadgroup_position_in_grid]],
+         uint3 tpitg[[thread_position_in_threadgroup]],
+         uint3   ntg[[threads_per_threadgroup]]) {
+-    const int64_t ir = tgpig.x;
++    // one row (channel) per thread: a 1-thread threadgroup per row leaves the GPU mostly idle at decode
++    const int64_t ir = (int64_t) tgpig.x*ntg.x + tpitg.x;
+     const int64_t i2 = tgpig.y;
++
++    if (ir >= args.ne01) {
++        return;
++    }
+     const int64_t i3 = tgpig.z;
+ 
+     const int64_t nc  = FC_ssm_conv_nc;
+@@ -63,9 +80,86 @@ kernel void kernel_ssm_conv_f32_f32_4(
+         sumf += dot(s[i0], c[i0]);
+     }
+ 
++    if (FC_ssm_conv_bias) {
++        sumf += bias[ir];
++    }
++
+     x[0] = FC_ssm_conv_silu ? sumf/(1.0f + exp(-sumf)) : sumf;
+ }
+ 
++// decode / speculative verify: the conv window (state + new tokens) of one channel stays in registers, so
++// the concatenated tensor is never materialized; the new state (and rollback snapshots) go straight to the cache
++kernel void kernel_ssm_conv_cat_f32(
++        constant ggml_metal_kargs_ssm_conv_cat & args,
++        device const  char * state,
++        device const  char * x,
++        device const  char * conv_w,
++        device const float * bias,
++        device        char * dst,
++        device        char * cache,
++        uint3 tgpig[[threadgroup_position_in_grid]],
++        uint3 tpitg[[thread_position_in_threadgroup]],
++        uint3   ntg[[threads_per_threadgroup]]) {
++    constexpr short NT_MAX = 16;
++
++    const int32_t ir = tgpig.x*ntg.x + tpitg.x;
++    const int32_t i3 = tgpig.z;
++
++    if (ir >= args.n_ch) {
++        return;
++    }
++
++    const short nc  = FC_ssm_conv_nc;
++    const short ncs = nc - 1;
++    const int32_t n_t = args.n_t;
++
++    float w[4 - 1 + NT_MAX];
++
++    FOR_UNROLL (short k = 0; k < 3; ++k) {
++        if (k < ncs) {
++            w[k] = *(device const float *) (state + k*args.nbs0 + ir*args.nbs1 + i3*args.nbs2);
++        }
++    }
++    for (int32_t t = 0; t < n_t; ++t) {
++        w[ncs + t] = *(device const float *) (x + t*args.nbx0 + ir*args.nbx1 + i3*args.nbx2);
++    }
++
++    device const float * c = (device const float *) (conv_w + ir*args.nb11);
++    float cw[4];
++    FOR_UNROLL (short k = 0; k < 4; ++k) {
++        if (k < nc) {
++            cw[k] = c[k];
++        }
++    }
++    const float b = bias[ir];
++
++    for (int32_t t = 0; t < n_t; ++t) {
++        // same arithmetic as kernel_ssm_conv_f32_f32(_4) followed by the bias add, so results are bit-identical
++        float sumf = 0.0f;
++        if (nc == 4) {
++            sumf = dot(float4(w[t], w[t + 1], w[t + 2], w[t + 3]), float4(cw[0], cw[1], cw[2], cw[3]));
++        } else {
++            FOR_UNROLL (short k = 0; k < 4; ++k) {
++                if (k < nc) {
++                    sumf += w[t + k]*cw[k];
++                }
++            }
++        }
++        sumf += b;
++        *(device float *) (dst + ir*args.nb0 + t*args.nb1 + i3*args.nb2) = sumf/(1.0f + exp(-sumf));
++    }
++
++    // slot s keeps the state after token n_t - 1 - s (slot 0 = final state)
++    for (int32_t s = 0; s < args.n_slots; ++s) {
++        device float * cs = (device float *) (cache + s*args.nbc2 + i3*args.nbc1) + ir*ncs;
++        FOR_UNROLL (short k = 0; k < 3; ++k) {
++            if (k < ncs) {
++                cs[k] = w[n_t - s + k];
++            }
++        }
++    }
++}
++
+ constant short FC_ssm_conv_bs   [[function_constant(FC_SSM_CONV + 0)]];
+ 
+ // Batched version: each threadgroup processes multiple tokens for better efficiency
+@@ -75,6 +169,7 @@ kernel void kernel_ssm_conv_f32_f32_batched(
+         device const  void * src0,
+         device const  void * src1,
+         device       float * dst,
++        device const float * bias,
+         uint3 tgpig[[threadgroup_position_in_grid]],
+         uint3 tpitg[[thread_position_in_threadgroup]],
+         uint3   ntg[[threads_per_threadgroup]]) {
+@@ -112,6 +207,10 @@ kernel void kernel_ssm_conv_f32_f32_batched(
+         sumf += s[i0] * c[i0];
+     }
+ 
++    if (FC_ssm_conv_bias) {
++        sumf += bias[ir];
++    }
++
+     x[0] = FC_ssm_conv_silu ? sumf/(1.0f + exp(-sumf)) : sumf;
+ }
+ 
+@@ -120,6 +219,7 @@ kernel void kernel_ssm_conv_f32_f32_batched_4(
+         device const  void * src0,
+         device const  void * src1,
+         device       float * dst,
++        device const float * bias,
+         uint3 tgpig[[threadgroup_position_in_grid]],
+         uint3 tpitg[[thread_position_in_threadgroup]],
+         uint3   ntg[[threads_per_threadgroup]]) {
+@@ -157,6 +257,10 @@ kernel void kernel_ssm_conv_f32_f32_batched_4(
+         sumf += dot(s[i0], c[i0]);
+     }
+ 
++    if (FC_ssm_conv_bias) {
++        sumf += bias[ir];
++    }
++
+     x[0] = FC_ssm_conv_silu ? sumf/(1.0f + exp(-sumf)) : sumf;
+ }
+ 
+@@ -295,6 +399,112 @@ kernel void kernel_ssm_scan_impl(
+     s_buff[i] = s;
+ }
+ 
++// few-token scan (decode, speculative verify): one simdgroup per head_dim row, the row's state stays in
++// registers (lane holds d_state/32 entries) across tokens, so it is read and written once; no barriers
++kernel void kernel_ssm_scan_f32_rows(
++        constant ggml_metal_kargs_ssm_scan & args,
++        device const void * src0,
++        device const void * src1,
++        device const void * src2,
++        device const void * src3,
++        device const void * src4,
++        device const void * src5,
++        device const void * src6,
++        device      float * dst,
++        device      char  * dst_s, // final state + snapshots: the tail of dst, or the recurrent cache when fused
++        uint3   tgpig[[threadgroup_position_in_grid]],
++        ushort  sgitg[[simdgroup_index_in_threadgroup]],
++        ushort  tiisg[[thread_index_in_simdgroup]],
++        ushort  sgptg[[simdgroups_per_threadgroup]]) {
++    constexpr short NS_MAX = 8; // d_state <= 256
++
++    const int32_t i1 = tgpig.x*sgptg + sgitg; // row within the head
++    const int32_t ir = tgpig.y;               // head
++    const int32_t i3 = tgpig.z;               // seq
++
++    const int32_t nc  = args.d_state;
++    const int32_t nr  = args.d_inner;
++    const int32_t nh  = args.n_head;
++    const int32_t ng  = args.n_group;
++    const int32_t n_t = args.n_seq_tokens;
++    const int32_t n_s = args.n_seqs;
++    const int32_t K   = args.K;
++    const short   nk  = nc/N_SIMDWIDTH;
++
++    if (i1 >= nr) {
++        return;
++    }
++
++    device const int32_t * ids = (device const int32_t *) src6;
++
++    device       float * s_buff  = (device       float *) (dst_s + ir*args.nb02 +      i3*args.nb03 + args.s_off)          + i1*nc;
++    device const float * s0_buff = (device const float *) ((device const char *) src0 + ir*args.nb02 + ids[i3]*args.nb03) + i1*nc;
++
++    const int32_t g = ir / (nh / ng);
++
++    device const float * A  = (device const float *) ((device const char *) src3 + ir*args.nb31);
++    device const float * x  = (device const float *) ((device const char *) src1 + i1*args.nb10 + ir*args.nb11 + i3*args.nb13);
++    device const float * dt = (device const float *) ((device const char *) src2 + ir*args.nb20 + i3*args.nb22);
++    device const float * B  = (device const float *) ((device const char *) src4 + g*args.nb41 + i3*args.nb43);
++    device const float * C  = (device const float *) ((device const char *) src5 + g*args.nb51 + i3*args.nb53);
++
++    device float * y = dst + (i1 + ir*nr + i3*(n_t*nh*nr));
++
++    float s[NS_MAX];
++    float a[NS_MAX];
++
++    FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
++        if (k < nk) {
++            s[k] = s0_buff[tiisg + k*N_SIMDWIDTH];
++            a[k] = A[(tiisg + k*N_SIMDWIDTH) % args.ne30];
++        }
++    }
++
++    for (int32_t t = 0; t < n_t; ++t) {
++        const float dt0  = dt[0];
++        const float dtsp = dt0 <= 20.0f ? log(1.0f + exp(dt0)) : dt0;
++        const float x_dt = x[0] * dtsp;
++
++        float sumf = 0.0f;
++
++        FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
++            if (k < nk) {
++                const int32_t j = tiisg + k*N_SIMDWIDTH;
++                s[k] = s[k] * exp(dtsp * a[k]) + B[j] * x_dt;
++                sumf += s[k] * C[j];
++            }
++        }
++
++        // rollback snapshots for speculative decoding (see kernel_ssm_scan_impl)
++        const int32_t slot = n_t - 1 - t;
++        if (slot > 0 && slot < K) {
++            device float * s_snapshot = (device float *) ((device char *) s_buff + (int64_t) slot*args.nb_s_slot);
++            FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
++                if (k < nk) {
++                    s_snapshot[tiisg + k*N_SIMDWIDTH] = s[k];
++                }
++            }
++        }
++
++        sumf = simd_sum(sumf);
++
++        if (tiisg == 0) {
++            y[t*nh*nr] = sumf;
++        }
++
++        x  += args.ns12;
++        dt += args.ns21;
++        B  += args.ns42;
++        C  += args.ns52;
++    }
++
++    FOR_UNROLL (short k = 0; k < NS_MAX; ++k) {
++        if (k < nk) {
++            s_buff[tiisg + k*N_SIMDWIDTH] = s[k];
++        }
++    }
++}
++
+ typedef decltype(kernel_ssm_scan_impl<false>) kernel_ssm_scan_t;
+ 
+ template [[host_name("kernel_ssm_scan_f32")]]      kernel kernel_ssm_scan_t kernel_ssm_scan_impl<false>;
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index f33fe177e..7b4515ca1 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -4993,18 +4993,21 @@ struct test_ssm_scan_cache_fusion : public test_case {
+     const int64_t n_seq_tokens;
+     const int64_t n_seqs;
+     const int64_t K; // snapshot slot count (1 = final state only)
++    // -1: separate state tensor; >= 0: read the state from the cache itself, as build_rs does, with
++    // 0 = each seq reads its own cell, 1 = its own cell in snapshot slot 1, 2 = cells reversed (aliases another seq's write)
++    const int ids_mode;
+ 
+     ggml_tensor * cpy_node = nullptr;
+ 
+     std::string vars() override {
+-        return VARS_TO_STR8(type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, K);
++        return VARS_TO_STR9(type, d_state, head_dim, n_head, n_group, n_seq_tokens, n_seqs, K, ids_mode);
+     }
+ 
+     test_ssm_scan_cache_fusion(ggml_type type = GGML_TYPE_F32,
+             int64_t d_state = 128, int64_t head_dim = 64, int64_t n_head = 16, int64_t n_group = 2,
+-            int64_t n_seq_tokens = 4, int64_t n_seqs = 1, int64_t K = 4)
++            int64_t n_seq_tokens = 4, int64_t n_seqs = 1, int64_t K = 4, int ids_mode = -1)
+         : type(type), d_state(d_state), head_dim(head_dim), n_head(n_head), n_group(n_group),
+-          n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), K(K) {}
++          n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), K(K), ids_mode(ids_mode) {}
+ 
+     ggml_tensor * build_graph(ggml_context * ctx) override {
+         const int64_t D         = d_state * head_dim * n_head;
+@@ -5014,7 +5017,13 @@ struct test_ssm_scan_cache_fusion : public test_case {
+         const int64_t mem_size = n_seqs + 2;
+         const int64_t kv_head  = 1;
+ 
+-        ggml_tensor * s   = ggml_new_tensor_4d(ctx, type, d_state,  head_dim,     n_head,       n_seqs);
++        const int64_t n_slots = std::max<int64_t>(n_written, ids_mode == 1 ? 2 : 1);
++
++        ggml_tensor * cache = ggml_new_tensor_2d(ctx, type, D, mem_size * n_slots);
++        ggml_set_name(cache, "cache");
++
++        ggml_tensor * s   = ids_mode < 0 ? ggml_new_tensor_4d(ctx, type, d_state, head_dim, n_head, n_seqs)
++                                         : ggml_reshape_4d(ctx, cache, d_state, head_dim, n_head, mem_size * n_slots);
+         ggml_tensor * x   = ggml_new_tensor_4d(ctx, type, head_dim, n_head,       n_seq_tokens, n_seqs);
+         ggml_tensor * dt  = ggml_new_tensor_3d(ctx, type, n_head,   n_seq_tokens, n_seqs);
+         ggml_tensor * A   = ggml_new_tensor_2d(ctx, type, 1,        n_head);
+@@ -5035,8 +5044,6 @@ struct test_ssm_scan_cache_fusion : public test_case {
+                 ggml_row_size(out->type, ggml_nelements(x)));
+ 
+         // recurrent cache view [D, n_seqs, n_written]
+-        ggml_tensor * cache = ggml_new_tensor_2d(ctx, type, D, mem_size * n_written);
+-        ggml_set_name(cache, "cache");
+         ggml_tensor * dst = ggml_view_3d(ctx, cache,
+                 D, n_seqs, n_written,
+                 cache->nb[1],
+@@ -5064,15 +5071,26 @@ struct test_ssm_scan_cache_fusion : public test_case {
+         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {
+             if (ggml_is_view_op(t->op)) { continue; }
+             if (strcmp(t->name, "ids") == 0) {
++                const int32_t mem_size = n_seqs + 2;
++                const int32_t kv_head  = 1;
+                 std::vector<int32_t> data(t->ne[0]);
+                 for (int i = 0; i < t->ne[0]; i++) {
+-                    data[i] = i;
++                    switch (ids_mode) {
++                        case 0:  data[i] = kv_head + i;                      break;
++                        case 1:  data[i] = mem_size + kv_head + i;           break;
++                        case 2:  data[i] = kv_head + (int32_t) n_seqs - 1 - i; break;
++                        default: data[i] = i;                                break;
++                    }
+                 }
+                 ggml_backend_tensor_set(t, data.data(), 0, t->ne[0] * sizeof(int32_t));
+             } else if (strcmp(t->name, "A") == 0) {
+                 init_tensor_uniform(t, -1.0f, -0.5f);
+             } else if (strcmp(t->name, "cache") == 0) {
+-                init_tensor_uniform(t, 0.0f, 0.0f);
++                if (ids_mode < 0) {
++                    init_tensor_uniform(t, 0.0f, 0.0f);
++                } else {
++                    init_tensor_uniform(t);
++                }
+             } else {
+                 init_tensor_uniform(t);
+             }
+@@ -5080,6 +5098,75 @@ struct test_ssm_scan_cache_fusion : public test_case {
+     }
+ };
+ 
++// Mamba-2 conv step as built by mamba-base: concat(state, x^T), rolled windows copied into the conv cache (one per
++// snapshot slot), then ssm_conv + bias + silu. Each cpy writes into a view of the previous one (same cache, same
++// offsets as the model) only to keep the graph order concat, cpy x m, conv, add, silu.
++struct test_ssm_conv_cat_fusion : public test_case {
++    const int64_t n_ch;
++    const int64_t n_seq_tokens;
++    const int64_t n_seqs;
++    const int64_t K;
++
++    std::vector<ggml_tensor *> check_nodes;
++
++    std::string vars() override {
++        return VARS_TO_STR4(n_ch, n_seq_tokens, n_seqs, K);
++    }
++
++    test_ssm_conv_cat_fusion(int64_t n_ch = 10240, int64_t n_seq_tokens = 1, int64_t n_seqs = 1, int64_t K = 1)
++        : n_ch(n_ch), n_seq_tokens(n_seq_tokens), n_seqs(n_seqs), K(K) {}
++
++    ggml_tensor * build_graph(ggml_context * ctx) override {
++        const int64_t d_conv    = 4;
++        const int64_t mem_size  = n_seqs + 2;
++        const int64_t kv_head   = 1;
++        const int64_t n_written = std::min<int64_t>(n_seq_tokens, K);
++        const int64_t row_count = (d_conv - 1) * n_ch;
++        const size_t  row_size  = ggml_row_size(GGML_TYPE_F32, row_count);
++
++        ggml_tensor * state = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, d_conv - 1, n_ch, n_seqs);
++        ggml_tensor * xbc   = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, n_ch, n_seq_tokens, n_seqs);
++        ggml_tensor * w     = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, d_conv, n_ch);
++        ggml_tensor * bias  = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_ch);
++        // extra rows so the read-back view at the end fits after the last slot
++        const int64_t n_extra = (n_ch * n_seq_tokens * n_seqs + row_count - 1) / row_count;
++        ggml_tensor * cache = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, row_count, mem_size * n_written + n_extra);
++        ggml_set_name(cache, "cache");
++
++        ggml_tensor * conv_x = ggml_concat(ctx, state, ggml_transpose(ctx, xbc), 0);
++
++        check_nodes.clear();
++        ggml_tensor * prev = cache;
++        size_t prev_offs = 0;
++        for (int64_t slot = 0; slot < n_written; ++slot) {
++            ggml_tensor * last_conv = ggml_view_3d(ctx, conv_x, d_conv - 1, n_ch, n_seqs, conv_x->nb[1], conv_x->nb[2],
++                                                   (n_seq_tokens - slot) * conv_x->nb[0]);
++            const size_t offs = ((size_t) slot * mem_size + kv_head) * row_size;
++            ggml_tensor * dst = ggml_view_2d(ctx, prev, row_count, n_seqs, cache->nb[1], offs - prev_offs);
++            prev = ggml_cpy(ctx, last_conv, dst);
++            prev_offs = offs;
++            check_nodes.push_back(prev);
++        }
++
++        ggml_tensor * out = ggml_silu(ctx, ggml_add(ctx, ggml_ssm_conv(ctx, conv_x, w), bias));
++        check_nodes.push_back(out);
++
++        // read the cache after the last cpy so the copies are part of the graph
++        ggml_tensor * tail = ggml_view_1d(ctx, prev, ggml_nelements(out), 0);
++        ggml_tensor * res  = ggml_add(ctx, ggml_reshape(ctx, tail, out), out);
++        check_nodes.push_back(res);
++        return res;
++    }
++
++    std::string op_desc(ggml_tensor * t) override {
++        GGML_UNUSED(t);
++        return "SSM_CONV_CAT_FUSION";
++    }
++
++    bool run_whole_graph() override { return true; }
++    std::vector<ggml_tensor *> fusion_test_nodes() override { return check_nodes; }
++};
++
+ // GGML_OP_RWKV_WKV6
+ struct test_rwkv_wkv6 : public test_case {
+     const ggml_type type;
+@@ -11062,6 +11149,18 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 1, 1, 1)); // K == 1, final state only
+     test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 4, 1, 1));
+     test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 300, 1, 1)); // K == 1, SSD path over two chunks
++    for (int ids_mode : {0, 1, 2}) {
++        for (int64_t n_seqs : {1, 4, 16}) {
++            test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 1, n_seqs, 1, ids_mode)); // decode
++            test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 4, n_seqs, 4, ids_mode)); // verify with snapshots
++        }
++    }
++    for (int64_t n_seqs : {1, 4}) {
++        test_cases.emplace_back(new test_ssm_conv_cat_fusion(10240, 1, n_seqs, 1)); // decode
++        test_cases.emplace_back(new test_ssm_conv_cat_fusion(10240, 4, n_seqs, 4)); // verify, 4 snapshot slots
++        test_cases.emplace_back(new test_ssm_conv_cat_fusion(10240, 8, n_seqs, 3)); // more tokens than slots
++        test_cases.emplace_back(new test_ssm_conv_cat_fusion(  300, 2, n_seqs, 1)); // n_ch not a multiple of the threadgroup
++    }
+ 
+     test_cases.emplace_back(new test_rwkv_wkv6(GGML_TYPE_F32, 32, 64, 1, 1));
+     test_cases.emplace_back(new test_rwkv_wkv6(GGML_TYPE_F32, 32, 64, 32, 1));
