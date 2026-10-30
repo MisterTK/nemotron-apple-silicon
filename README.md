@@ -18,6 +18,7 @@ Decode benchmarks and Metal kernel work for hybrid Mamba-2 MoE models (Nemotron-
 | `models/` | model files (not included; see Models) |
 | `ref/` | MLX's stock SDPA source, kept for comparison |
 | `sweep.py`, `loadtest.py` | llama-batched-bench driver and llama-server load test |
+| `webai/` | `use-bolt.sh` runs Bolt inside the webAI desktop app on the patched server |
 
 ## Using the patches
 
@@ -34,6 +35,15 @@ The fork reaches 46.9 with the experts re-encoded as IQ2_XXS_U3 (`bench/gguf_iq2
 the NVFP4 scales into the norm weights (`bench/gguf_fold_scales.py`) is optional; it was worth 0.7 tok/s on the fork and
 nothing on the upstream set. The patches are described in `patches/UPSTREAM-INDEX.md`; each upstream patch has a notes file
 with tests and numbers.
+
+## Bolt in webAI
+
+The webAI desktop app runs its chat on the Homebrew `llama-server` (llama.cpp 620d2225c, the fork's base commit) and
+resolves models as `<hugging-face-repo>:<quant>` into its own GGUF cache. `webai/use-bolt.sh` registers the downloaded
+Bolt file in that cache, points the app at the fork build through the `APOGEE_LLAMA_SERVER` environment variable, sets
+Bolt as the selected model and relaunches the app. Measured through the app's server (3 slots, q8_0 KV): 41 tok/s decode.
+`webai/use-bolt.sh --undo` puts Gemma and the Homebrew server back. The environment variable is per login session, so
+re-run the script after a reboot.
 
 ## Setup
 
