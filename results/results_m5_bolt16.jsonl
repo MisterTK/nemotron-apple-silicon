@@ -1,0 +1,33 @@
+{"tag": "m5-bolt16-reap50-upstream-1x128k", "users": 1, "prompt_words": 2000, "gen": 256, "wall_s": 11.41, "agg_gen_tps": 22.4, "ttft_p50": 3.9, "ttft_max": 3.9, "per_user_decode_tps_p50": 34.0, "per_user_decode_tps_min": 34.0}
+{"tag": "m5-bolt16-reap50-upstream-1x128k", "users": 1, "prompt_words": 22000, "gen": 256, "wall_s": 49.66, "agg_gen_tps": 5.2, "ttft_p50": 41.85, "ttft_max": 41.85, "per_user_decode_tps_p50": 32.7, "per_user_decode_tps_min": 32.7}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-natural", "prompt_tokens": 8248, "gen": 256, "pp_tps": 536.6, "tg_tps": 34.8, "ttft_s": 15.4, "wall_s": 22.8, "draft_n": null, "draft_accepted": null}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-natural", "prompt_tokens": 32191, "gen": 256, "pp_tps": 491.6, "tg_tps": 32.8, "ttft_s": 65.5, "wall_s": 73.3, "draft_n": null, "draft_accepted": null}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-natural", "prompt_tokens": 99970, "gen": 256, "pp_tps": 407.5, "tg_tps": 27.4, "ttft_s": 245.3, "wall_s": 254.7, "draft_n": null, "draft_accepted": null}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 1, "history_tokens": 4619, "processed": 4619, "ttft_s": 8.27, "tg_tps": 37.3, "wall_s": 12.0}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 2, "history_tokens": 9069, "processed": 4454, "ttft_s": 8.22, "tg_tps": 36.6, "wall_s": 11.7}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 3, "history_tokens": 13382, "processed": 4317, "ttft_s": 8.17, "tg_tps": 36.2, "wall_s": 11.7}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 4, "history_tokens": 18079, "processed": 4701, "ttft_s": 9.26, "tg_tps": 35.6, "wall_s": 12.8}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 5, "history_tokens": 22542, "processed": 4467, "ttft_s": 9.07, "tg_tps": 35.0, "wall_s": 12.7}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 6, "history_tokens": 27049, "processed": 4511, "ttft_s": 9.62, "tg_tps": 34.2, "wall_s": 13.4}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 7, "history_tokens": 31752, "processed": 4707, "ttft_s": 10.29, "tg_tps": 33.6, "wall_s": 14.1}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 8, "history_tokens": 36082, "processed": 4334, "ttft_s": 9.75, "tg_tps": 33.3, "wall_s": 13.6}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 9, "history_tokens": 40526, "processed": 4448, "ttft_s": 10.35, "tg_tps": 32.9, "wall_s": 14.3}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 10, "history_tokens": 45186, "processed": 4664, "ttft_s": 11.15, "tg_tps": 32.4, "wall_s": 15.1}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 11, "history_tokens": 49778, "processed": 4596, "ttft_s": 11.25, "tg_tps": 32.0, "wall_s": 15.3}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 12, "history_tokens": 54658, "processed": 4884, "ttft_s": 12.38, "tg_tps": 31.4, "wall_s": 16.5}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 13, "history_tokens": 59014, "processed": 4360, "ttft_s": 11.37, "tg_tps": 30.9, "wall_s": 15.5}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 14, "history_tokens": 63393, "processed": 4383, "ttft_s": 11.75, "tg_tps": 30.6, "wall_s": 16.0}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 15, "history_tokens": 68175, "processed": 4786, "ttft_s": 13.14, "tg_tps": 30.2, "wall_s": 17.4}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 16, "history_tokens": 72711, "processed": 4540, "ttft_s": 12.8, "tg_tps": 29.7, "wall_s": 17.2}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 17, "history_tokens": 77652, "processed": 4945, "ttft_s": 14.3, "tg_tps": 29.3, "wall_s": 18.7}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 18, "history_tokens": 81980, "processed": 4332, "ttft_s": 12.91, "tg_tps": 28.9, "wall_s": 17.4}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 19, "history_tokens": 86453, "processed": 4477, "ttft_s": 13.56, "tg_tps": 28.5, "wall_s": 18.1}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 20, "history_tokens": 91248, "processed": 4799, "ttft_s": 14.92, "tg_tps": 28.1, "wall_s": 19.5}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 21, "history_tokens": 95622, "processed": 4378, "ttft_s": 13.97, "tg_tps": 27.8, "wall_s": 18.6}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 22, "history_tokens": 100496, "processed": 4878, "ttft_s": 15.92, "tg_tps": 27.4, "wall_s": 20.7}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 23, "history_tokens": 104826, "processed": 4334, "ttft_s": 14.51, "tg_tps": 27.1, "wall_s": 19.3}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 24, "history_tokens": 109287, "processed": 4465, "ttft_s": 15.17, "tg_tps": 26.7, "wall_s": 20.1}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 25, "history_tokens": 114066, "processed": 4783, "ttft_s": 16.74, "tg_tps": 25.4, "wall_s": 21.9}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 26, "history_tokens": 118379, "processed": 4317, "ttft_s": 15.56, "tg_tps": 25.9, "wall_s": 20.6}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 27, "history_tokens": 123198, "processed": 4823, "ttft_s": 17.62, "tg_tps": 25.7, "wall_s": 22.7}
+{"tag": "m5-bolt16-reap50-upstream-1x128k-session", "turn": 28, "history_tokens": 127458, "processed": 4264, "ttft_s": 15.92, "tg_tps": 25.3, "wall_s": 21.1}
