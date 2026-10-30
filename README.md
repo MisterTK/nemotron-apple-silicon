@@ -40,10 +40,25 @@ with tests and numbers.
 
 The webAI desktop app runs its chat on the Homebrew `llama-server` (llama.cpp 620d2225c, the fork's base commit) and
 resolves models as `<hugging-face-repo>:<quant>` into its own GGUF cache. `webai/use-bolt.sh` registers the downloaded
-Bolt file in that cache, points the app at the fork build through the `APOGEE_LLAMA_SERVER` environment variable, sets
-Bolt as the selected model and relaunches the app. Measured through the app's server (3 slots, q8_0 KV): 41 tok/s decode.
-`webai/use-bolt.sh --undo` puts Gemma and the Homebrew server back. The environment variable is per login session, so
-re-run the script after a reboot.
+Bolt file in that cache, points the app at `webai/llama-server-wrapper.sh` through the `APOGEE_LLAMA_SERVER`
+environment variable, sets Bolt as the selected model and relaunches the app. The wrapper execs the fork build with
+the context and slot count the script chooses, because webAI itself gives Bolt 30,720 tokens over 3 slots (10,240 per
+request) and its load-model API refuses more; a 22,000-word prompt is rejected at that size. Defaults are 3 slots of
+131,072 tokens (`--ctx`, `--slots` change them). Bolt's cache is cheap: 8 attention layers, 4.2 KB per token at q8_0,
+so a 128K slot costs 0.5 GB plus 165 MB of recurrent state.
+
+Measured through the app's server, 2,000-word prompts, 256 tokens, q8_0 KV, 3 x 128K:
+
+| users | decode per user | aggregate | first token |
+|---|---|---|---|
+| 1 | 43.9 | 24 | 4.5 s |
+| 2 | 29.2 | 58 | 9.0 s |
+| 3 | 25.4 | 75 | 13.8 s |
+
+The same as the standalone server (llama-bench 44.8). A 22,000-word prompt prefills at 448 tok/s and decodes at 40.8.
+Prefill is serialized across slots, so a long prompt on one slot stalls the others while it runs.
+`webai/use-bolt.sh --undo` puts Gemma and the Homebrew server back. The environment variables are per login session,
+so re-run the script after a reboot.
 
 ## Setup
 

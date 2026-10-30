@@ -5,16 +5,33 @@
 # and resolves models as "<hf-repo>:<quant>" into ~/Library/Caches/webai/gguf-cache-v1.
 # This script
 #   1. registers an already-downloaded Bolt GGUF in that cache (hard link + origin.json),
-#   2. points webAI at a patched llama-server through the APOGEE_LLAMA_SERVER environment variable,
+#   2. points webAI at webai/llama-server-wrapper.sh through the APOGEE_LLAMA_SERVER environment
+#      variable; the wrapper execs the patched llama-server with the context and slot count
+#      below instead of webAI's fixed 30720 tokens over 3 slots,
 #   3. sets the app's selected model to Bolt, and
 #   4. relaunches webAI.
 # Observed on webAI 2.5.2 nightly (2026-10-29). Undo with `webai/use-bolt.sh --undo`.
 #
-# usage: webai/use-bolt.sh [--undo] [path/to/llama-server] [path/to/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf]
+# usage: webai/use-bolt.sh [--undo] [--ctx TOKENS_PER_SLOT] [--slots N] [--server PATH] [--model PATH]
 set -eu
 
-SERVER=${2:-$(dirname "$0")/../llama.cpp-bolt/build/bin/llama-server}
-SRC=${3:-$(dirname "$0")/../models/bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf}
+HERE=$(cd "$(dirname "$0")" && pwd)
+SERVER=$HERE/../llama.cpp-bolt/build/bin/llama-server
+SRC=$HERE/../models/bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf
+CTX=131072       # per slot; q8_0 KV costs 0.5 GB per 128K slot on Bolt, the recurrent state 165 MB
+SLOTS=3          # webAI's own count; its parallel features expect 3
+UNDO=
+while [ $# -gt 0 ]; do
+    case $1 in
+        --undo) UNDO=1 ;;
+        --ctx) CTX=$2; shift ;;
+        --slots) SLOTS=$2; shift ;;
+        --server) SERVER=$2; shift ;;
+        --model) SRC=$2; shift ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
 REPO=nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF
 FILE=NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf
 MODEL_ID="$REPO:24GB"            # the quant label must be a suffix of the file name; "24GB" is.
@@ -43,9 +60,9 @@ quit_app() {
     pkill -f 'llama-server --model' 2>/dev/null || true
 }
 
-if [ "${1:-}" = "--undo" ]; then
+if [ -n "$UNDO" ]; then
     quit_app
-    launchctl unsetenv APOGEE_LLAMA_SERVER
+    for v in APOGEE_LLAMA_SERVER WEBAI_LLAMA_SERVER WEBAI_CTX_PER_SLOT WEBAI_SLOTS; do launchctl unsetenv $v; done
     set_pref "$GEMMA_ID"
     rm -f "$DST" "$DST.origin.json" "$DST.last_used"
     open -a webAI
@@ -63,8 +80,12 @@ touch "$DST.last_used"
 
 quit_app
 SERVER_ABS=$(cd "$(dirname "$SERVER")" && pwd)/$(basename "$SERVER")
-launchctl setenv APOGEE_LLAMA_SERVER "$SERVER_ABS"   # per login session; re-run after a reboot
+# launchctl setenv is per login session; re-run this script after a reboot
+launchctl setenv APOGEE_LLAMA_SERVER "$HERE/llama-server-wrapper.sh"
+launchctl setenv WEBAI_LLAMA_SERVER "$SERVER_ABS"
+launchctl setenv WEBAI_CTX_PER_SLOT "$CTX"
+launchctl setenv WEBAI_SLOTS "$SLOTS"
 set_pref "$MODEL_ID"
 open -a webAI
-echo "webAI relaunched with $MODEL_ID on $SERVER_ABS"
+echo "webAI relaunched with $MODEL_ID on $SERVER_ABS, $SLOTS slots x $CTX tokens"
 echo "check: ps -o command= -p \$(pgrep -f 'llama-server --model')"
