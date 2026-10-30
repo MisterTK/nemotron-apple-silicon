@@ -47,7 +47,12 @@ FILE=$(basename "$SRC")
 MODEL_ID="$REPO:$QUANT"
 GEMMA_ID="ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0"
 CACHE="$HOME/Library/Caches/webai/gguf-cache-v1"
-LS=$(ls "$HOME"/Library/WebKit/com.apogee.shell/WebsiteData/Default/*/*/LocalStorage/localstorage.sqlite3 2>/dev/null | head -1)
+# one localStorage per web origin; the app's preferences live in the one holding the model key
+LS=
+for f in "$HOME"/Library/WebKit/com.apogee.shell/WebsiteData/Default/*/*/LocalStorage/localstorage.sqlite3; do
+    [ -f "$f" ] || continue
+    if [ -n "$(sqlite3 "$f" "select 1 from ItemTable where key='oasis_model_base_pref_v1'" 2>/dev/null)" ]; then LS=$f; break; fi
+done
 
 hash16() { printf '%s' "https://huggingface.co/$REPO/resolve/main/$1" | shasum -a 256 | cut -c1-16; }
 DST="$CACHE/$(printf '%s' "$REPO" | tr / _)__${FILE}__$(hash16 "$FILE").gguf"
