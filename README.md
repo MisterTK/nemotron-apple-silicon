@@ -75,6 +75,23 @@ with Gemma 4 26B-A4B as webAI ships it (Q4_0, MTP, `results/results_webai_servin
 | 32K tokens, natural text | 104 | 34 s | | |
 | 100K tokens, natural text | 69 | 150 s | | |
 
+A long agent session, 2,000-word tool result per turn plus a 128-token reply, history growing to 126K tokens, same
+3 x 128K setup, `results/results_webai_session.jsonl`. llama-server reuses the cached prefix, so each turn processes only
+its new ~4,500 tokens; the cost of the history shows up as slower prefill and decode at depth, not as re-reading it.
+Per turn: time to first token / decode tok/s / whole turn:
+
+| history | Lightning | Bolt | Gemma 4 (fork, MTP) |
+|---|---|---|---|
+| 4K (turn 1) | 4.2 s / 118 / 5.4 s | 11.1 s / 43 / 14.1 s | 4.2 s / 108 / 5.4 s |
+| 31K (turn 7) | 5.4 s / 96 / 6.7 s | 12.5 s / 38 / 15.8 s | 7.3 s / 64 / 9.3 s |
+| 58K (turn 13) | 7.8 s / 80 / 9.4 s | 14.5 s / 37 / 18.0 s | 12.0 s / 43 / 14.9 s |
+| 85K (turn 19) | 8.4 s / 75 / 10.1 s | 15.3 s / 35 / 18.9 s | server died at 86K |
+| 126K (turn 28) | 12.3 s / 54 / 14.6 s | 19.8 s / 32 / 23.8 s | |
+
+Turn 29 is rejected by all of them: the history exceeds the 128K slot, and `--context-shift` does not apply to prompts
+larger than the slot. Gemma's server was killed mid-prefill with 100 MB of system memory free; its cache at 128K is
+about six times the Mamba models' and the machine was under memory pressure from other applications.
+
 Lightning's draft is accepted 68-77% of the time on natural text and 43-48% on the repeated-word load-test prompts,
 which is why the natural-text decode is higher. Without the draft it decodes at 94 (2K) and 85 (22K words). Its cache
 is 3.2 KB per token at q8_0 (6 attention layers), 0.4 GB per 128K slot; native context is 1M tokens.
