@@ -92,6 +92,32 @@ Turn 29 is rejected by all of them: the history exceeds the 128K slot, and `--co
 larger than the slot. Gemma's server was killed mid-prefill with 100 MB of system memory free; its cache at 128K is
 about six times the Mamba models' and the machine was under memory pressure from other applications.
 
+Lightning at 3 x 256K, `results/results_webai_lightning_256k.jsonl`. The server took 23.3 GB at load and peaked at
+27.8 GB; free memory touched 0.1 GB during the 250K prefill without heavy compression, and the server log shows no
+errors over the whole run. Single natural-text prompts:
+
+| prompt | prefill tok/s | first token | decode |
+|---|---|---|---|
+| 150K tokens | 535 | 281 s | 49 |
+| 250K tokens | 371 | 674 s | 44 |
+
+The same growing session continued to 258K tokens of history, still processing only the new ~4,500 tokens per turn:
+
+| history | first token | decode | whole turn |
+|---|---|---|---|
+| 4K (turn 1) | 3.8 s | 129 | 4.9 s |
+| 58K (turn 13) | 7.1 s | 76 | 8.8 s |
+| 131K (turn 29) | 12.0 s | 59 | 14.2 s |
+| 203K (turn 45) | 19.2 s | 43 | 22.2 s |
+| 258K (turn 57) | 23.6 s | 37 | 27.2 s |
+
+Turn 58 (262,199 tokens) is rejected, 55 tokens over the slot. Three 100K prompts sent at once finished after 152, 306
+and 458 s; the first two decoded at 1-2 tok/s while the remaining prefills ran, the last at 48 alone. llama-server
+schedules one batch per step across all slots: a slot that is prefilling fills the batch (`--batch-size`, 2048 here),
+so other prefills wait and a decoding slot gets one token per 2048-token chunk. A smaller batch size gives decoding
+slots more turns at the cost of prefill speed; there is no priority setting. Multiple slots pay off for overlapping
+short chats, not for simultaneous long prompts.
+
 Lightning's draft is accepted 68-77% of the time on natural text and 43-48% on the repeated-word load-test prompts,
 which is why the natural-text decode is higher. Without the draft it decodes at 94 (2K) and 85 (22K words). Its cache
 is 3.2 KB per token at q8_0 (6 attention layers), 0.4 GB per 128K slot; native context is 1M tokens.
