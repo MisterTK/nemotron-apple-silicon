@@ -3,7 +3,7 @@ cd "$(dirname "$0")/.." || exit 1
 mkdir -p results logs
 FORK=${FORK:-llama.cpp-bolt/build/bin}                 # Bolt fork (NVFP4, SSM fusions, split-K)
 MASTER=${MASTER:-llama.cpp-upstream-splitk/build/bin}  # master 2e0d86beb + split-K
-BOLT=${BOLT:-models/bolt/Bolt-74B-A9B-24GB-folded.gguf}
+BOLT=${BOLT:-models/bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf}
 BOLT_DRAFT=${BOLT_DRAFT:-models/bolt-lilicorr/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr.gguf}
 GEMMA=${GEMMA:-models/gemma-4-26B-A4B-it-Q4_0.gguf}
 QWEN=${QWEN:-models/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf}
