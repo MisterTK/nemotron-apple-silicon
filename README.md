@@ -118,6 +118,27 @@ so other prefills wait and a decoding slot gets one token per 2048-token chunk. 
 slots more turns at the cost of prefill speed; there is no priority setting. Multiple slots pay off for overlapping
 short chats, not for simultaneous long prompts.
 
+The two probes are `webai/long_prompt.py TOKENS TAG OUT.jsonl` (one natural-text prompt built from the repo's markdown,
+256-token answer) and `webai/session.py TURNS TAG OUT.jsonl` (the growing session, about 4,500 tokens per turn). Run
+them from the repo root against the app's server on port 11436; both append one JSON record per request.
+
+To repeat the Lightning test on another Mac: build `llama.cpp-bolt` as below, download the two Lightning files into
+`models/lightning/`, then
+
+```sh
+webai/use-bolt.sh --model models/lightning/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf \
+  --repo ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF \
+  --draft models/lightning/mtp-NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf --ctx 131072 --slots 1
+curl -s localhost:11436/props | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["total_slots"], d["default_generation_settings"]["n_ctx"])'
+python3 webai/long_prompt.py 8000 m5-lightning-1x128k results/results_m5.jsonl
+python3 webai/long_prompt.py 100000 m5-lightning-1x128k results/results_m5.jsonl
+python3 webai/session.py 28 m5-lightning-1x128k-session results/results_m5.jsonl
+```
+
+On a 24 GB machine the 17.6 GB weights plus the 1.1 GB draft are close to the GPU working-set limit; if the load
+fails or decode falls far below the figures above, drop `--draft` first (decode was 94 instead of 102 without it here),
+then raise the wired limit (`sudo sysctl iogpu.wired_limit_mb=20480`). The cache itself is not the problem: 0.4 GB at 128K.
+
 Lightning's draft is accepted 68-77% of the time on natural text and 43-48% on the repeated-word load-test prompts,
 which is why the natural-text decode is higher. Without the draft it decodes at 94 (2K) and 85 (22K words). Its cache
 is 3.2 KB per token at q8_0 (6 attention layers), 0.4 GB per 128K slot; native context is 1M tokens.
