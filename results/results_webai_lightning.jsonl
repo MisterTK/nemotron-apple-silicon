@@ -1,0 +1,7 @@
+{"tag": "webai-lightning-q4_0-mtp-q8kv-3x128k", "users": 1, "prompt_words": 2000, "gen": 256, "wall_s": 4.09, "agg_gen_tps": 62.5, "ttft_p50": 1.6, "ttft_max": 1.6, "per_user_decode_tps_p50": 102.1, "per_user_decode_tps_min": 102.1}
+{"tag": "webai-lightning-q4_0-mtp-q8kv-3x128k", "users": 2, "prompt_words": 2000, "gen": 256, "wall_s": 8.42, "agg_gen_tps": 60.8, "ttft_p50": 3.18, "ttft_max": 3.2, "per_user_decode_tps_p50": 49.6, "per_user_decode_tps_min": 48.4}
+{"tag": "webai-lightning-q4_0-mtp-q8kv-3x128k", "users": 3, "prompt_words": 2000, "gen": 256, "wall_s": 12.23, "agg_gen_tps": 62.8, "ttft_p50": 5.15, "ttft_max": 5.32, "per_user_decode_tps_p50": 36.9, "per_user_decode_tps_min": 34.3}
+{"tag": "webai-lightning-q4_0-mtp-q8kv-3x128k", "users": 1, "prompt_words": 22000, "gen": 256, "wall_s": 23.09, "agg_gen_tps": 11.1, "ttft_p50": 20.29, "ttft_max": 20.29, "per_user_decode_tps_p50": 91.0, "per_user_decode_tps_min": 91.0}
+{"tag": "webai-lightning-q4_0-mtp-q8kv-3x128k-natural", "prompt_tokens": 8297, "gen": 256, "pp_tps": 1082.9, "tg_tps": 136.9, "ttft_s": 7.7, "wall_s": 9.6, "draft_n": 234, "draft_accepted": 177}
+{"tag": "webai-lightning-q4_0-mtp-q8kv-3x128k-natural", "prompt_tokens": 31932, "gen": 256, "pp_tps": 936.5, "tg_tps": 104.0, "ttft_s": 34.1, "wall_s": 36.6, "draft_n": 231, "draft_accepted": 178}
+{"tag": "webai-lightning-q4_0-mtp-q8kv-3x128k-natural", "prompt_tokens": 100474, "gen": 256, "pp_tps": 668.1, "tg_tps": 68.5, "ttft_s": 150.4, "wall_s": 154.1, "draft_n": 252, "draft_accepted": 170}

@@ -8,6 +8,8 @@
 #   WEBAI_LLAMA_SERVER   real binary (default: ../llama.cpp-bolt/build/bin/llama-server)
 #   WEBAI_CTX_PER_SLOT   context per slot in tokens (default: keep webAI's total)
 #   WEBAI_SLOTS          number of slots (default: keep webAI's value)
+#   WEBAI_EXTRA_ARGS     appended verbatim, e.g. "--spec-type draft-mtp --model-draft /path/mtp.gguf"
+#   WEBAI_SERVER_LOG     file to append the server's stderr to (webAI itself discards it)
 #
 # webai/use-bolt.sh sets these with `launchctl setenv`, which is what the app reads.
 here=$(cd "$(dirname "$0")" && pwd)
@@ -33,4 +35,5 @@ else
 fi
 [ -n "$total" ] && args="$args --ctx-size $total"
 [ -n "$slots" ] && args="$args --parallel $slots"
-eval exec "'$real'" $args
+[ -n "${WEBAI_SERVER_LOG:-}" ] && exec 2>>"$WEBAI_SERVER_LOG"
+eval exec "'$real'" $args ${WEBAI_EXTRA_ARGS:-}

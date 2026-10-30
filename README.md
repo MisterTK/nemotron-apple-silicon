@@ -58,7 +58,26 @@ Measured through the app's server, 2,000-word prompts, 256 tokens, q8_0 KV, 3 x 
 The same as the standalone server (llama-bench 44.8). A 22,000-word prompt prefills at 448 tok/s and decodes at 40.8.
 Prefill is serialized across slots, so a long prompt on one slot stalls the others while it runs.
 `webai/use-bolt.sh --undo` puts Gemma and the Homebrew server back. The environment variables are per login session,
-so re-run the script after a reboot.
+so re-run the script after a reboot. The wrapper appends to `WEBAI_SERVER_LOG` if set; webAI discards the server's
+stderr. Twice after a launch the server answered every request with "Compute error" until relaunched; the log is there
+to catch the cause next time.
+
+Any GGUF goes the same way with `--model`, `--repo`, optional `--quant` and `--draft`. Nemotron-3.5-Lightning-30B-A3B
+(ggml-org Q4_0, 17.6 GB, with its 1.1 GB MTP draft) in webAI, 3 x 128K, q8_0 KV, `results/results_webai_lightning.jsonl`,
+with Gemma 4 26B-A4B as webAI ships it (Q4_0, MTP, `results/results_webai_serving.jsonl`):
+
+| prompt | Lightning decode | Lightning first token | Gemma 4 decode | Gemma first token |
+|---|---|---|---|---|
+| 2,000 words, 1 user | 102 | 1.6 s | 97 | 1.6 s |
+| 2,000 words, 2 / 3 users each | 50 / 37 | 3.2 / 5.2 s | | |
+| 22,000 words | 91 | 20 s | 65 | 23 s |
+| 8K tokens, natural text | 137 | 7.7 s | | |
+| 32K tokens, natural text | 104 | 34 s | | |
+| 100K tokens, natural text | 69 | 150 s | | |
+
+Lightning's draft is accepted 68-77% of the time on natural text and 43-48% on the repeated-word load-test prompts,
+which is why the natural-text decode is higher. Without the draft it decodes at 94 (2K) and 85 (22K words). Its cache
+is 3.2 KB per token at q8_0 (6 attention layers), 0.4 GB per 128K slot; native context is 1M tokens.
 
 ## Setup
 
@@ -93,6 +112,7 @@ The explicit SDK path is needed on macOS 27 when the Command Line Tools SDK fail
 | `models/bolt/Bolt-74B-A9B-24GB-folded.gguf` | `python3 bench/gguf_fold_scales.py <above> <this>` (NVFP4 scales folded into norms; optional, the recorded fork runs used it) |
 | `models/bolt-lilicorr/...LiLiCorr.gguf` | NVIDIA's DFlash drafter for Bolt |
 | `models/gemma-4-26B-A4B-it-Q4_0.gguf` | ggml-org/gemma-4-26B-A4B-it-GGUF |
+| `models/lightning/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf`, `mtp-...-Q4_0.gguf` | ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF |
 | `models/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf` | unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF |
 | `models/Nemotron-3-Nano-30B-A3B-Q4_K_M.gguf` | unsloth/Nemotron-3-Nano-30B-A3B-GGUF |
 | `models/mlx-nemotron30b-4bit`, `mlx-qwen30b-4bit`, `mlx-gemma26b-4bit` | mlx-community 4-bit conversions |

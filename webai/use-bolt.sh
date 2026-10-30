@@ -12,12 +12,19 @@
 #   4. relaunches webAI.
 # Observed on webAI 2.5.2 nightly (2026-10-29). Undo with `webai/use-bolt.sh --undo`.
 #
-# usage: webai/use-bolt.sh [--undo] [--ctx TOKENS_PER_SLOT] [--slots N] [--server PATH] [--model PATH]
+# Any other GGUF works the same way: --model PATH --repo OWNER/REPO [--quant LABEL] [--draft MTP.gguf],
+# for example ggml-org's Nemotron-3.5-Lightning-30B-A3B Q4_0 with its MTP draft.
+#
+# usage: webai/use-bolt.sh [--undo] [--ctx TOKENS_PER_SLOT] [--slots N] [--server PATH]
+#                          [--model PATH] [--repo OWNER/REPO] [--quant LABEL] [--draft PATH]
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SERVER=$HERE/../llama.cpp-bolt/build/bin/llama-server
 SRC=$HERE/../models/bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf
+REPO=nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF
+QUANT=           # webAI matches "<repo>:<quant>" against the file name suffix; default: the token after the last "-"
+DRAFT=           # MTP draft GGUF, passed to the server as --spec-type draft-mtp --model-draft
 CTX=131072       # per slot; q8_0 KV costs 0.5 GB per 128K slot on Bolt, the recurrent state 165 MB
 SLOTS=3          # webAI's own count; its parallel features expect 3
 UNDO=
@@ -28,13 +35,16 @@ while [ $# -gt 0 ]; do
         --slots) SLOTS=$2; shift ;;
         --server) SERVER=$2; shift ;;
         --model) SRC=$2; shift ;;
+        --repo) REPO=$2; shift ;;
+        --quant) QUANT=$2; shift ;;
+        --draft) DRAFT=$2; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
     shift
 done
-REPO=nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF
-FILE=NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf
-MODEL_ID="$REPO:24GB"            # the quant label must be a suffix of the file name; "24GB" is.
+FILE=$(basename "$SRC")
+[ -n "$QUANT" ] || QUANT=$(printf '%s' "${FILE%.gguf}" | sed 's/.*-//')
+MODEL_ID="$REPO:$QUANT"
 GEMMA_ID="ggml-org/gemma-4-26B-A4B-it-GGUF:Q4_0"
 CACHE="$HOME/Library/Caches/webai/gguf-cache-v1"
 LS=$(ls "$HOME"/Library/WebKit/com.apogee.shell/WebsiteData/Default/*/*/LocalStorage/localstorage.sqlite3 2>/dev/null | head -1)
@@ -62,16 +72,17 @@ quit_app() {
 
 if [ -n "$UNDO" ]; then
     quit_app
-    for v in APOGEE_LLAMA_SERVER WEBAI_LLAMA_SERVER WEBAI_CTX_PER_SLOT WEBAI_SLOTS; do launchctl unsetenv $v; done
+    for v in APOGEE_LLAMA_SERVER WEBAI_LLAMA_SERVER WEBAI_CTX_PER_SLOT WEBAI_SLOTS WEBAI_EXTRA_ARGS; do launchctl unsetenv $v; done
     set_pref "$GEMMA_ID"
     rm -f "$DST" "$DST.origin.json" "$DST.last_used"
     open -a webAI
-    echo "restored: Homebrew llama-server, $GEMMA_ID, Bolt removed from the cache"
+    echo "restored: Homebrew llama-server, $GEMMA_ID, $FILE removed from the cache"
     exit 0
 fi
 
 [ -x "$SERVER" ] || { echo "llama-server not found at $SERVER (build it with patches/apply.sh fork)" >&2; exit 1; }
-[ -f "$SRC" ] || { echo "Bolt GGUF not found at $SRC" >&2; exit 1; }
+[ -f "$SRC" ] || { echo "GGUF not found at $SRC" >&2; exit 1; }
+[ -z "$DRAFT" ] || [ -f "$DRAFT" ] || { echo "draft GGUF not found at $DRAFT" >&2; exit 1; }
 
 mkdir -p "$CACHE"
 [ -e "$DST" ] || ln "$SRC" "$DST" 2>/dev/null || cp "$SRC" "$DST"
@@ -85,6 +96,11 @@ launchctl setenv APOGEE_LLAMA_SERVER "$HERE/llama-server-wrapper.sh"
 launchctl setenv WEBAI_LLAMA_SERVER "$SERVER_ABS"
 launchctl setenv WEBAI_CTX_PER_SLOT "$CTX"
 launchctl setenv WEBAI_SLOTS "$SLOTS"
+if [ -n "$DRAFT" ]; then
+    launchctl setenv WEBAI_EXTRA_ARGS "--spec-type draft-mtp --model-draft $(cd "$(dirname "$DRAFT")" && pwd)/$(basename "$DRAFT")"
+else
+    launchctl unsetenv WEBAI_EXTRA_ARGS
+fi
 set_pref "$MODEL_ID"
 open -a webAI
 echo "webAI relaunched with $MODEL_ID on $SERVER_ABS, $SLOTS slots x $CTX tokens"
