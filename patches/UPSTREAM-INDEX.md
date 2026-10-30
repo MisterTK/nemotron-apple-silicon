@@ -1,5 +1,7 @@
 # patches
 
+`apply.sh fork|upstream|master [dir]` checks out the pinned llama.cpp commit, applies the set and builds it. The four `upstream-*` patches apply together on 418f905a4 (verified 2026-10-29).
+
 Prefixes: `fork-` the Bolt fork diff, `upstream-` branches prepared for llama.cpp, `tool-` benchmark and profiling aids, `experiment-` measured changes not kept.
 
 ## Fork
@@ -8,7 +10,7 @@ Prefixes: `fork-` the Bolt fork diff, `upstream-` branches prepared for llama.cp
 
 ## Upstream branches
 
-All on origin/master 2e0d86beb, uncommitted, in worktrees under `pr/` (split-K: `llama.cpp-upstream-splitk`). Each has `upstream-<branch>.patch` and `upstream-<branch>.notes.md` (facts, numbers, tests, overlap, reviewer questions, walkthrough).
+Worktrees under `pr/` (split-K: `llama.cpp-upstream-splitk`). The batched-bench fix (#31389) and the TOPK_MOE fusion (#31390, draft until #31389 merges; new contributors get one open PR) are on master 418f905a4. nvfp4 and ssm-fusions were rebased onto 418f905a4 on 2026-10-29 and are staged, uncommitted. Split-K is still on 2e0d86beb. Each has `upstream-<branch>.patch` and `upstream-<branch>.notes.md` (facts, numbers, tests, overlap, reviewer questions, walkthrough).
 Configure fresh builds with `-DCMAKE_OSX_SYSROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk` when the Command Line Tools SDK fails to link.
 
 | # | branch | size | headline (M3 Max) | overlap |

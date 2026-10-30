@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-metal/ggml-metal-device.cpp b/ggml/src/ggml-metal/ggml-metal-device.cpp
-index 25a8a3ef6..9bb9e6ba8 100644
+index 548b9896a..8b3fefa17 100644
 --- a/ggml/src/ggml-metal/ggml-metal-device.cpp
 +++ b/ggml/src/ggml-metal/ggml-metal-device.cpp
 @@ -589,7 +589,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_dsv4_hc(ggml_met
@@ -94,7 +94,7 @@ index 25a8a3ef6..9bb9e6ba8 100644
      char base[256];
      char name[256];
 diff --git a/ggml/src/ggml-metal/ggml-metal-device.h b/ggml/src/ggml-metal/ggml-metal-device.h
-index dd7cdb958..8a732967b 100644
+index 1858e7fc5..e7f6f1753 100644
 --- a/ggml/src/ggml-metal/ggml-metal-device.h
 +++ b/ggml/src/ggml-metal/ggml-metal-device.h
 @@ -128,10 +128,12 @@ struct ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_soft_max
@@ -480,7 +480,7 @@ index 6e566084a..e530b7767 100644
  
  typedef struct {
 diff --git a/ggml/src/ggml-metal/ggml-metal-ops.cpp b/ggml/src/ggml-metal/ggml-metal-ops.cpp
-index 14712c3e8..4ee2d8fb7 100644
+index 35e3dada2..f2f24170d 100644
 --- a/ggml/src/ggml-metal/ggml-metal-ops.cpp
 +++ b/ggml/src/ggml-metal/ggml-metal-ops.cpp
 @@ -561,9 +561,70 @@ int ggml_metal_op_encode(ggml_metal_op_t ctx, int idx) {
@@ -554,7 +554,7 @@ index 14712c3e8..4ee2d8fb7 100644
      ggml_metal_library_t lib = ctx->lib;
      ggml_metal_encoder_t enc = ctx->enc;
  
-@@ -1794,6 +1855,7 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
+@@ -1798,6 +1859,7 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
  
      int n_fuse = 1;
      bool use_silu = false;
@@ -562,7 +562,7 @@ index 14712c3e8..4ee2d8fb7 100644
  
      if (ctx->use_fusion()) {
          int n = 1;
-@@ -1801,6 +1863,7 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
+@@ -1805,6 +1867,7 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
          if (fusion && ggml_metal_fusion_get_id(fusion) == GGML_METAL_FUSION_SSM_CONV_SILU) {
              n_fuse = n;
              use_silu = true;
@@ -570,7 +570,7 @@ index 14712c3e8..4ee2d8fb7 100644
  
              ctx->count_fusions(fusion);
          }
-@@ -1840,28 +1903,31 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
+@@ -1844,28 +1907,31 @@ int ggml_metal_op_ssm_conv(ggml_metal_op_t ctx, int idx) {
          else if (ne1 > 4  ) BATCH_SIZE = 8;
          else                BATCH_SIZE = 2;
  
@@ -605,7 +605,7 @@ index 14712c3e8..4ee2d8fb7 100644
      }
  
      if (n_fuse > 1 && ggml_metal_fusion_info_debug(ctx->finfo) > 1) {
-@@ -1951,6 +2017,7 @@ int ggml_metal_op_ssm_scan(ggml_metal_op_t ctx, int idx) {
+@@ -1955,6 +2021,7 @@ int ggml_metal_op_ssm_scan(ggml_metal_op_t ctx, int idx) {
          /*.ns52         =*/ nb52/nb50,
          /*.nb53         =*/ nb53,
          /*.nb0          =*/ nb0,
@@ -613,7 +613,7 @@ index 14712c3e8..4ee2d8fb7 100644
      };
  
      constexpr int64_t CHUNK = OP_SSM_SCAN_SSD_CS;
-@@ -1982,6 +2049,39 @@ int ggml_metal_op_ssm_scan(ggml_metal_op_t ctx, int idx) {
+@@ -1986,6 +2053,39 @@ int ggml_metal_op_ssm_scan(ggml_metal_op_t ctx, int idx) {
          ggml_metal_encoder_dispatch_threadgroups(enc, n_tg_x, n_head, n_seqs, nth, 1, 1);
      };
  
@@ -953,7 +953,7 @@ index b21c53b74..33af6a931 100644
  
  template [[host_name("kernel_ssm_scan_f32")]]      kernel kernel_ssm_scan_t kernel_ssm_scan_impl<false>;
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index f33fe177e..7b4515ca1 100644
+index f75ff11b9..7cac2e0d8 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
 @@ -4993,18 +4993,21 @@ struct test_ssm_scan_cache_fusion : public test_case {
@@ -1110,7 +1110,7 @@ index f33fe177e..7b4515ca1 100644
  // GGML_OP_RWKV_WKV6
  struct test_rwkv_wkv6 : public test_case {
      const ggml_type type;
-@@ -11062,6 +11149,18 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -11100,6 +11187,18 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
      test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 1, 1, 1)); // K == 1, final state only
      test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 4, 1, 1));
      test_cases.emplace_back(new test_ssm_scan_cache_fusion(GGML_TYPE_F32, 128, 64, 16, 2, 300, 1, 1)); // K == 1, SSD path over two chunks

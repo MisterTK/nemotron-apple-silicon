@@ -1,6 +1,6 @@
 # metal: NVFP4 support (mat-vec, mat-mat, few-row MMA, MoE, get_rows)
 
-Branch: `metal-nvfp4` in worktree `pr/metal-nvfp4`, on origin/master 2e0d86beb, uncommitted.
+Branch: `metal-nvfp4` in worktree `pr/metal-nvfp4`, on origin/master 418f905a4 (rebased 2026-10-29 from 2e0d86beb), staged and uncommitted.
 Patch: `patches/upstream-metal-nvfp4.patch` (see UPSTREAM-INDEX.md). Metal only; no CPU, test or model changes.
 
 ## What changes
@@ -11,7 +11,8 @@ Patch: `patches/upstream-metal-nvfp4.patch` (see UPSTREAM-INDEX.md). Metal only;
   - `kernel_mul_mm_nvfp4_{f32,f16}`, `kernel_mul_mm_id_nvfp4_{f32,f16}` (bf16 tiles when `GGML_METAL_HAS_BF16`, same as MXFP4),
   - few-row MMA (`MUL_MV_MMA_GEN("nvfp4", ...)`) plus the type lists in `ggml-metal-common.cpp` (rows_min 3, same as MXFP4),
   - `kernel_get_rows_nvfp4`.
-- Helpers: `ue4m3_to_fp32` (common.h), `dequantize_nvfp4` / `dequantize_nvfp4_t4` (dequantize.h), `fp4_e2m1_dq1/lo4/hi4` (mul_mv.metal).
+- Helpers: `ue4m3_to_fp32` (common.h), `dequantize_nvfp4` / `dequantize_nvfp4_t4` (dequantize.h). The mat-vec reuses master's
+  `mxfp4_dq1/lo4/hi4` E2M1 decode (from #31075, merged as 6d194531e).
 - Dispatch: N_R0_NVFP4 = 2, N_SG_NVFP4 = 2 in `get_pipeline_mul_mv` and `get_pipeline_mul_mv_id`; NVFP4 added to the mv_ext type list in `ggml_metal_op_mul_mat` (ne11 2..8).
 
 ## Why
@@ -19,13 +20,13 @@ On master any NVFP4 weight falls back to the CPU backend on Apple Silicon. NVIDI
 (`NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf`) with its Mamba in/out projections in NVFP4 (2.47 GB, 80 tensors), so every
 decode step round-trips activations to the CPU for those matmuls.
 
-## Tests (M3 Max 40-core, macOS 27.0, master 2e0d86beb + patch)
+## Tests (M3 Max 40-core, macOS 27.0, master 418f905a4 + patch, rerun 2026-10-29 after the rebase)
 - `test-backend-ops test -b MTL0 -o GET_ROWS`: 232/232 (8 NVFP4 cases ran).
 - `-o MUL_MAT_ID`: 1104/1104 (73 NVFP4 cases ran).
 - `-o MUL_MAT`: 2538/2538 (48 NVFP4 cases ran; 36 NVFP4 x f16-src1 cases are "not supported" because the CPU reference does not support them, same on master).
 - NVFP4 is already in `all_types` / `base_types` on master, so no test changes were needed; these cases were skipped on Metal before.
 - Perplexity, Bolt-74B NVIDIA GGUF, 8 x 2048 tokens of Python stdlib source (`-fa on -ngl 99`):
-  master (NVFP4 on CPU) 2.0061 +/- 0.0389, branch (Metal NVFP4) 2.0061 +/- 0.0389; per-chunk values agree to within 0.0014.
+  master (NVFP4 on CPU) 2.0061 +/- 0.0389, branch (Metal NVFP4) 2.0061 +/- 0.0389; per-chunk values agree to within 0.0014. Same result on 418f905a4 (2.0061 both, per-chunk within 0.0015).
 
 ## End to end (M3 Max, `llama-bench -fa 1 -ngl 99 -p 512 -n 64 -r 2`, NVIDIA Bolt GGUF, 2 interleaved runs each)
 
@@ -35,6 +36,8 @@ decode step round-trips activations to the CPU for those matmuls.
 | master + patch | 445.1, 444.7 | 31.40, 31.33 |
 
 3.25x decode, 2.66x prefill.
+
+On 418f905a4 (2026-10-29): master 168.5, 166.3 / 9.51, 9.74; master + patch 445.7, 444.3 / 35.04, 35.15. 3.6x decode.
 
 ## Kernel time (`test-backend-ops perf -o MUL_MAT`, Bolt shapes, two runs, us; temporary perf cases, not in the patch)
 
@@ -65,9 +68,9 @@ decode step round-trips activations to the CPU for those matmuls.
 - The user decides whether to build on #20456 (e.g. ask the author) or open a new PR that references it.
 
 ## Relation to other open PRs
-- #31075 (MXFP4 mat-vec via the fp16 bit trick, opened 2026-10-24) uses the same E2M1 decode idea for MXFP4. This branch adds
-  its own `fp4_e2m1_*` helpers (names chosen so they don't collide); if #31075 lands first, the NVFP4 mat-vec should reuse
-  whatever helper it adds.
+- #31075 (MXFP4 mat-vec via the fp16 bit trick) merged as 6d194531e between 2e0d86beb and 418f905a4. The rebase dropped this
+  branch's own `fp4_e2m1_*` helpers and the NVFP4 mat-vec now calls master's `mxfp4_*` ones; the two conflicting hunks were
+  that rename and the FP8 E4M3 exclusions #27512 added to `supports_op` (kept).
 - #30047 (MMA kernels for MUL_MAT_ID): if it lands, NVFP4 needs an entry wherever it adds per-type kernels.
 
 ## Open points a reviewer may ask about

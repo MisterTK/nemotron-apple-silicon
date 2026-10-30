@@ -1,4 +1,4 @@
-# nemo
+# nemotron-apple-silicon
 
 Decode benchmarks and Metal kernel work for hybrid Mamba-2 MoE models (Nemotron-3-Nano-30B, Nemotron-3.5-Bolt-74B) against attention MoE models (Qwen3-30B-A3B, Gemma 4 26B-A4B) on Apple Silicon, with MLX and llama.cpp.
 
@@ -19,13 +19,29 @@ Decode benchmarks and Metal kernel work for hybrid Mamba-2 MoE models (Nemotron-
 | `ref/` | MLX's stock SDPA source, kept for comparison |
 | `sweep.py`, `loadtest.py` | llama-batched-bench driver and llama-server load test |
 
+## Using the patches
+
+To run Bolt-74B (or any Mamba-2 hybrid) faster on Apple Silicon without reading further:
+
+```sh
+patches/apply.sh upstream        # llama.cpp master 418f905a4 + the four upstream-ready patches -> llama.cpp-upstream/build/bin
+patches/apply.sh fork            # llama.cpp 620d2225c + the full Bolt fork (fastest, uses fork-only formats) -> llama.cpp-fork/build/bin
+```
+
+Both sets add Metal NVFP4 support, so NVIDIA's `NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf` runs on the GPU as is. Decode
+on an M3 Max, one user, that file: stock master 9.7 tok/s, upstream set 43.9 (measured 2026-10-29 on 418f905a4), fork 44.8.
+The fork reaches 46.9 with the experts re-encoded as IQ2_XXS_U3 (`bench/gguf_iq2u3.py`, +10 GB, fork-only format). Folding
+the NVFP4 scales into the norm weights (`bench/gguf_fold_scales.py`) is optional; it was worth 0.7 tok/s on the fork and
+nothing on the upstream set. The patches are described in `patches/UPSTREAM-INDEX.md`; each upstream patch has a notes file
+with tests and numbers.
+
 ## Setup
 
 Requirements: macOS with Xcode, cmake, Python 3 with `numpy`, and for the MLX tests a Python with `mlx-lm` (tested with mlx 0.32.1, mlx-lm 0.31.3). Set `MLX_PY` to that interpreter if it is not `python3`.
 
 ### Rebuild llama.cpp
 
-Four builds are used. Each is a plain llama.cpp checkout with a patch applied:
+`patches/apply.sh <set> [dir]` does the checkout, patch and build for the `fork`, `upstream` and `master` sets. The recorded runs used four builds, each a plain llama.cpp checkout with a patch applied:
 
 | directory | base commit | patch |
 |---|---|---|
@@ -49,7 +65,7 @@ The explicit SDK path is needed on macOS 27 when the Command Line Tools SDK fail
 | file | source |
 |---|---|
 | `models/bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf` | nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-GGUF |
-| `models/bolt/Bolt-74B-A9B-24GB-folded.gguf` | `python3 bench/gguf_fold_scales.py <above> <this>` (NVFP4 scales folded into norms, needed by the fork) |
+| `models/bolt/Bolt-74B-A9B-24GB-folded.gguf` | `python3 bench/gguf_fold_scales.py <above> <this>` (NVFP4 scales folded into norms; optional, the recorded fork runs used it) |
 | `models/bolt-lilicorr/...LiLiCorr.gguf` | NVIDIA's DFlash drafter for Bolt |
 | `models/gemma-4-26B-A4B-it-Q4_0.gguf` | ggml-org/gemma-4-26B-A4B-it-GGUF |
 | `models/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf` | unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF |

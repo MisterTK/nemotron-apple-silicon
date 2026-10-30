@@ -1,6 +1,6 @@
 # metal: Mamba-2 decode step fusions (SSM_SCAN rows kernel + scan/cache fusion, CONCAT/conv/cache fusion)
 
-Branch: `metal-ssm-fusions` in worktree `pr/metal-ssm-fusions`, on origin/master 2e0d86beb, staged and uncommitted.
+Branch: `metal-ssm-fusions` in worktree `pr/metal-ssm-fusions`, on origin/master 418f905a4 (rebased 2026-10-29 from 2e0d86beb, applied cleanly), staged and uncommitted.
 Patch: `patches/upstream-metal-ssm-fusions.patch` (see UPSTREAM-INDEX.md).
 Source: the Bolt fork (`llama.cpp-bolt`), second and third passes in REPORT.md. Merged 2026-10-29 from two
 branches (`metal-ssm-scan-cache`, `metal-ssm-conv-cat`) that conflicted textually and only pay off together.
@@ -51,7 +51,7 @@ copies scale with the number of sequences while weights are shared, which is why
   162 / 108 fused scan / conv steps per short decode run on Nano-9B, 115 / 92 on Nano-30B.
 - With the host-side ids check disabled, the aliasing cases fail 1 in 6 at 4 sequences and 5/5 at 16, so the check
   catches a real race.
-- Perplexity, Nemotron-Nano-9B-v2 Q4_K_M, 16 x 512, `-ub 8` (so the rows kernel runs): 3.7133 master and branch.
+- Perplexity, Nemotron-Nano-9B-v2 Q4_K_M, 16 x 512, `-ub 8` (so the rows kernel runs): 3.7133 master and branch. Identical per chunk on 418f905a4.
 - Both fused kernels use the same arithmetic order as the kernels they replace; output is bit-identical.
 
 ## Kernel time, M3 Max, `test-backend-ops perf`, best of 2, us
@@ -70,6 +70,7 @@ copies scale with the number of sequences while weights are shared, which is why
 Each part alone on Nemotron-Nano 9B-v2 / 30B-A3B was within noise of master (<= 1.3%). The merged branch on
 Nano-30B-A3B Q4_K_M, `llama-bench -fa 1 -n 128 -r 2`, three interleaved rounds (2026-10-29): master 74.2 / 76.5 / 76.8,
 branch 81.9 / 86.7 / 87.1 tok/s (+13%). Fusions disabled (`GGML_METAL_FUSION_DISABLE=1`) on the branch: 65.6.
+After the rebase onto 418f905a4: master 75.1 / 79.3 / 79.2, branch 89.9 / 89.5 / 89.5 (+13%); fusions disabled 79.6.
 
 Bolt-74B-A9B (NVIDIA 24 GB GGUF) needs NVFP4 on Metal, so: master + `metal-nvfp4` (base) vs + this branch:
 
