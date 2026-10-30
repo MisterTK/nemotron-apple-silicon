@@ -33,7 +33,9 @@ Both sets add Metal NVFP4 support, so NVIDIA's `NVIDIA-Nemotron-3.5-Bolt-74B-A9B
 on an M3 Max, one user, that file: stock master 9.7 tok/s, upstream set 43.9 (measured 2026-10-29 on 418f905a4), fork 44.8.
 The fork reaches 46.9 with the experts re-encoded as IQ2_XXS_U3 (`bench/gguf_iq2u3.py`, +10 GB, fork-only format). Folding
 the NVFP4 scales into the norm weights (`bench/gguf_fold_scales.py`) is optional; it was worth 0.7 tok/s on the fork and
-nothing on the upstream set. The patches are described in `patches/UPSTREAM-INDEX.md`; each upstream patch has a notes file
+nothing on the upstream set. Homebrew llama.cpp 0.8.0 (build 11960, 8642541b2, 2026-10-30) loads both models unpatched:
+Bolt decodes at 9.0 tok/s (no Metal NVFP4 kernels), Lightning with its MTP draft at 98 (2K prompt) and 86 (32K), against
+102 and 104 on the fork. The patches are described in `patches/UPSTREAM-INDEX.md`; each upstream patch has a notes file
 with tests and numbers.
 
 ## Bolt in webAI
