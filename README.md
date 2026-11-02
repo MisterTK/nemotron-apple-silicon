@@ -177,6 +177,48 @@ Lightning's draft is accepted 68-77% of the time on natural text and 43-48% on t
 which is why the natural-text decode is higher. Without the draft it decodes at 94 (2K) and 85 (22K words). Its cache
 is 3.2 KB per token at q8_0 (6 attention layers), 0.4 GB per 128K slot; native context is 1M tokens.
 
+## Bolt on oMLX
+
+Bolt runs on oMLX from txgsync/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-MLX: NVIDIA's 24 GB checkpoint unchanged plus
+Metal kernels for its IQ2_XXS and NVFP4 tensors, loaded with Trust Remote Code. The `-LiLiCorr-MLX` variant adds
+NVIDIA's DFlash drafter (7 draft tokens, enabled with the model's DFlash setting after the first load). Same oMLX build
+as the Lightning run, `results/results_omlx_bolt.jsonl` and `results/results_omlx_bolt_lilicorr.jsonl`. Memory after
+load 23.2 GB, 24.1 GB with the drafter.
+
+Single natural-text prompts, prefill tok/s / first token / decode:
+
+| prompt | oMLX | oMLX + DFlash | llama.cpp fork |
+|---|---|---|---|
+| 2K | 544 / 3.5 s / 50 | 540 / 3.5 s / 59 | 460 / 4.5 s / 44 |
+| 8K | 535 / 16 s / 49 | | |
+| 32K | 482 / 66 s / 46 | 498 / 64 s / 62 | 448 / 65 s / 41 |
+| 100K | 427 / 235 s / 43 | 427 / 235 s / 48 | |
+| 150K | 380 / 396 s / 40 | | |
+| 250K | 312 / 803 s / 36 | | |
+
+Growing session, first token / decode per turn:
+
+| history | oMLX | llama.cpp fork |
+|---|---|---|
+| 4K | 13.2 s / 48 | 11.1 s / 43 |
+| 55K | 11.8 s / 45 | 14.5 s / 37 (58K) |
+| 105K | 15.0 s / 42 | 19.8 s / 32 (126K) |
+| 155K | 16.4 s / 39 | |
+| 205K | 18.7 s / 37 | |
+| 255K | 21.0 s / 35 | |
+
+Short answers with the drafter, 300 tokens, temperature 0: code 101-104 tok/s (accepted 85-96%), a markdown table 85,
+prose 51-55 (65-71%); the natural-text probes above accept 74-80%. Prose is not slower with the drafter here.
+
+Three 100K prompts at once: first tokens at 236, 711 and 723 s, decode 11.5 / 14.8 / 16.8 tok/s. The fast kernels are
+single-sequence; batched requests take the generic mlx-vlm path. For more than one user at long context the llama.cpp
+fork is the better server for Bolt. Free memory went to 0.1 GB during the first long prefill and stayed there; no errors.
+
+oMLX 0de3b0ba fails to attach the drafter (`__eq__(): incompatible function arguments ... mlx.core.Dtype, NoneType`):
+`match_target_dtype` in `omlx/speculative/dflash/__init__.py` compares the target embedding's dtype, which is None for
+Bolt's custom embedding, with `mx.float16`. Guarding the None (`target_dtype is None or target_dtype != mx.float16`)
+fixes it.
+
 ## Setup
 
 Requirements: macOS with Xcode, cmake, Python 3 with `numpy`, and for the MLX tests a Python with `mlx-lm` (tested with mlx 0.32.1, mlx-lm 0.31.3). Set `MLX_PY` to that interpreter if it is not `python3`.

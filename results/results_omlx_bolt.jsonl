@@ -1,0 +1,65 @@
+{"tag": "p2000", "prompt_tokens": 1902, "cached": 0, "gen": 256, "pp_tps": 544.1, "tg_tps": 50.1, "ttft_s": 3.5, "wall_s": 8.6}
+{"tag": "p8000", "prompt_tokens": 8293, "cached": 0, "gen": 256, "pp_tps": 535.2, "tg_tps": 48.6, "ttft_s": 15.5, "wall_s": 20.8}
+{"tag": "p32000", "prompt_tokens": 31937, "cached": 0, "gen": 256, "pp_tps": 482.2, "tg_tps": 46.4, "ttft_s": 66.2, "wall_s": 71.8}
+{"tag": "p100000", "prompt_tokens": 100123, "cached": 0, "gen": 256, "pp_tps": 426.8, "tg_tps": 42.9, "ttft_s": 234.6, "wall_s": 240.8}
+{"tag": "p150000", "prompt_tokens": 150307, "cached": 0, "gen": 256, "pp_tps": 380.1, "tg_tps": 40.0, "ttft_s": 395.5, "wall_s": 402.2}
+{"tag": "p250000", "prompt_tokens": 250342, "cached": 0, "gen": 256, "pp_tps": 311.6, "tg_tps": 35.5, "ttft_s": 803.3, "wall_s": 811.0}
+{"tag": "session", "turn": 1, "history_tokens": 4233, "processed": 4233, "ttft_s": 13.18, "tg_tps": 48.0, "wall_s": 13.9}
+{"tag": "session", "turn": 2, "history_tokens": 9147, "processed": 4915, "ttft_s": 9.57, "tg_tps": 48.5, "wall_s": 10.3}
+{"tag": "session", "turn": 3, "history_tokens": 13501, "processed": 4355, "ttft_s": 8.81, "tg_tps": 48.2, "wall_s": 9.5}
+{"tag": "session", "turn": 4, "history_tokens": 17937, "processed": 4437, "ttft_s": 9.1, "tg_tps": 47.8, "wall_s": 9.8}
+{"tag": "session", "turn": 5, "history_tokens": 22744, "processed": 4808, "ttft_s": 10.4, "tg_tps": 47.5, "wall_s": 11.1}
+{"tag": "session", "turn": 6, "history_tokens": 27295, "processed": 4552, "ttft_s": 9.93, "tg_tps": 47.3, "wall_s": 10.7}
+{"tag": "session", "turn": 7, "history_tokens": 32221, "processed": 4927, "ttft_s": 10.72, "tg_tps": 46.0, "wall_s": 11.5}
+{"tag": "session", "turn": 8, "history_tokens": 36464, "processed": 4244, "ttft_s": 9.76, "tg_tps": 45.8, "wall_s": 10.6}
+{"tag": "session", "turn": 9, "history_tokens": 41111, "processed": 4648, "ttft_s": 11.11, "tg_tps": 45.9, "wall_s": 11.9}
+{"tag": "session", "turn": 10, "history_tokens": 45882, "processed": 4772, "ttft_s": 11.28, "tg_tps": 45.5, "wall_s": 12.1}
+{"tag": "session", "turn": 11, "history_tokens": 50237, "processed": 4356, "ttft_s": 10.68, "tg_tps": 45.5, "wall_s": 11.5}
+{"tag": "session", "turn": 12, "history_tokens": 55004, "processed": 4768, "ttft_s": 11.82, "tg_tps": 45.0, "wall_s": 12.7}
+{"tag": "session", "turn": 13, "history_tokens": 59386, "processed": 4383, "ttft_s": 11.22, "tg_tps": 38.5, "wall_s": 12.2}
+{"tag": "session", "turn": 14, "history_tokens": 63606, "processed": 4214, "ttft_s": 11.0, "tg_tps": 45.0, "wall_s": 11.9}
+{"tag": "session", "turn": 15, "history_tokens": 68682, "processed": 5077, "ttft_s": 13.17, "tg_tps": 43.8, "wall_s": 14.1}
+{"tag": "session", "turn": 16, "history_tokens": 73028, "processed": 4347, "ttft_s": 11.69, "tg_tps": 43.6, "wall_s": 12.6}
+{"tag": "session", "turn": 17, "history_tokens": 77621, "processed": 4594, "ttft_s": 12.54, "tg_tps": 43.4, "wall_s": 13.5}
+{"tag": "session", "turn": 18, "history_tokens": 82106, "processed": 4486, "ttft_s": 12.88, "tg_tps": 43.0, "wall_s": 13.8}
+{"tag": "session", "turn": 19, "history_tokens": 86475, "processed": 4370, "ttft_s": 12.5, "tg_tps": 42.7, "wall_s": 13.5}
+{"tag": "session", "turn": 20, "history_tokens": 91195, "processed": 4721, "ttft_s": 13.57, "tg_tps": 42.5, "wall_s": 14.5}
+{"tag": "session", "turn": 21, "history_tokens": 95684, "processed": 4490, "ttft_s": 13.3, "tg_tps": 42.3, "wall_s": 14.3}
+{"tag": "session", "turn": 22, "history_tokens": 100237, "processed": 4554, "ttft_s": 13.68, "tg_tps": 42.0, "wall_s": 14.7}
+{"tag": "session", "turn": 23, "history_tokens": 105055, "processed": 4819, "ttft_s": 15.0, "tg_tps": 41.5, "wall_s": 16.0}
+{"tag": "session", "turn": 24, "history_tokens": 109423, "processed": 4369, "ttft_s": 13.7, "tg_tps": 41.4, "wall_s": 14.7}
+{"tag": "session", "turn": 25, "history_tokens": 113939, "processed": 4517, "ttft_s": 14.29, "tg_tps": 41.2, "wall_s": 15.3}
+{"tag": "session", "turn": 26, "history_tokens": 118771, "processed": 4833, "ttft_s": 15.53, "tg_tps": 39.9, "wall_s": 16.6}
+{"tag": "session", "turn": 27, "history_tokens": 123162, "processed": 4378, "ttft_s": 14.45, "tg_tps": 40.5, "wall_s": 15.5}
+{"tag": "session", "turn": 28, "history_tokens": 128048, "processed": 4887, "ttft_s": 16.22, "tg_tps": 40.3, "wall_s": 17.3}
+{"tag": "session", "turn": 29, "history_tokens": 132308, "processed": 4261, "ttft_s": 14.55, "tg_tps": 40.1, "wall_s": 15.6}
+{"tag": "session", "turn": 30, "history_tokens": 136740, "processed": 4433, "ttft_s": 15.34, "tg_tps": 33.6, "wall_s": 16.6}
+{"tag": "session", "turn": 31, "history_tokens": 141682, "processed": 4943, "ttft_s": 17.45, "tg_tps": 39.7, "wall_s": 18.6}
+{"tag": "session", "turn": 32, "history_tokens": 146081, "processed": 4400, "ttft_s": 15.65, "tg_tps": 38.9, "wall_s": 16.8}
+{"tag": "session", "turn": 33, "history_tokens": 150774, "processed": 4694, "ttft_s": 16.86, "tg_tps": 38.7, "wall_s": 18.0}
+{"tag": "session", "turn": 34, "history_tokens": 155250, "processed": 4477, "ttft_s": 16.4, "tg_tps": 39.2, "wall_s": 17.5}
+{"tag": "session", "turn": 35, "history_tokens": 159516, "processed": 4267, "ttft_s": 15.97, "tg_tps": 39.0, "wall_s": 17.1}
+{"tag": "session", "turn": 36, "history_tokens": 164531, "processed": 5016, "ttft_s": 19.19, "tg_tps": 38.6, "wall_s": 20.4}
+{"tag": "session", "turn": 37, "history_tokens": 168925, "processed": 4395, "ttft_s": 16.86, "tg_tps": 38.5, "wall_s": 18.1}
+{"tag": "session", "turn": 38, "history_tokens": 173291, "processed": 4367, "ttft_s": 17.08, "tg_tps": 37.4, "wall_s": 18.3}
+{"tag": "session", "turn": 39, "history_tokens": 178067, "processed": 4777, "ttft_s": 18.68, "tg_tps": 38.0, "wall_s": 19.9}
+{"tag": "session", "turn": 40, "history_tokens": 182415, "processed": 4349, "ttft_s": 18.25, "tg_tps": 37.6, "wall_s": 19.5}
+{"tag": "session", "turn": 41, "history_tokens": 186881, "processed": 4467, "ttft_s": 18.02, "tg_tps": 37.7, "wall_s": 19.3}
+{"tag": "session", "turn": 42, "history_tokens": 191641, "processed": 4761, "ttft_s": 19.42, "tg_tps": 37.5, "wall_s": 20.7}
+{"tag": "session", "turn": 43, "history_tokens": 196233, "processed": 4593, "ttft_s": 19.2, "tg_tps": 37.3, "wall_s": 20.5}
+{"tag": "session", "turn": 44, "history_tokens": 201025, "processed": 4793, "ttft_s": 20.43, "tg_tps": 37.0, "wall_s": 21.7}
+{"tag": "session", "turn": 45, "history_tokens": 205358, "processed": 4334, "ttft_s": 18.65, "tg_tps": 36.8, "wall_s": 20.0}
+{"tag": "session", "turn": 46, "history_tokens": 209888, "processed": 4531, "ttft_s": 19.54, "tg_tps": 35.5, "wall_s": 20.9}
+{"tag": "session", "turn": 47, "history_tokens": 214681, "processed": 4794, "ttft_s": 20.99, "tg_tps": 36.4, "wall_s": 22.3}
+{"tag": "session", "turn": 48, "history_tokens": 219055, "processed": 4375, "ttft_s": 19.63, "tg_tps": 36.2, "wall_s": 21.0}
+{"tag": "session", "turn": 49, "history_tokens": 223852, "processed": 4798, "ttft_s": 22.26, "tg_tps": 36.1, "wall_s": 23.6}
+{"tag": "session", "turn": 50, "history_tokens": 228197, "processed": 4346, "ttft_s": 19.86, "tg_tps": 36.0, "wall_s": 21.2}
+{"tag": "session", "turn": 51, "history_tokens": 232462, "processed": 4266, "ttft_s": 19.74, "tg_tps": 35.9, "wall_s": 21.1}
+{"tag": "session", "turn": 52, "history_tokens": 237494, "processed": 5033, "ttft_s": 23.29, "tg_tps": 35.7, "wall_s": 24.7}
+{"tag": "session", "turn": 53, "history_tokens": 241849, "processed": 4356, "ttft_s": 21.53, "tg_tps": 35.4, "wall_s": 22.9}
+{"tag": "session", "turn": 54, "history_tokens": 246516, "processed": 4668, "ttft_s": 22.32, "tg_tps": 34.0, "wall_s": 23.8}
+{"tag": "session", "turn": 55, "history_tokens": 250964, "processed": 4449, "ttft_s": 21.75, "tg_tps": 35.0, "wall_s": 23.2}
+{"tag": "session", "turn": 56, "history_tokens": 255246, "processed": 4283, "ttft_s": 21.03, "tg_tps": 34.9, "wall_s": 22.5}
+{"tag": "conc1", "prompt_tokens": 100124, "cached": 0, "gen": 256, "pp_tps": 424.5, "tg_tps": 11.5, "ttft_s": 235.9, "wall_s": 258.4}
+{"tag": "conc3", "prompt_tokens": 100126, "cached": 0, "gen": 256, "pp_tps": 140.9, "tg_tps": 14.8, "ttft_s": 710.5, "wall_s": 728.4}
+{"tag": "conc2", "prompt_tokens": 100126, "cached": 0, "gen": 256, "pp_tps": 138.5, "tg_tps": 16.8, "ttft_s": 723.1, "wall_s": 738.8}

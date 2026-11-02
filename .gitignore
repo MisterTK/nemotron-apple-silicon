@@ -6,3 +6,4 @@ pr/
 .DS_Store
 __pycache__/
 .semantex/
+.omlx-test/
