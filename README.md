@@ -142,7 +142,7 @@ fails or decode falls far below the figures above, drop `--draft` first (decode 
 then raise the wired limit (`sudo sysctl iogpu.wired_limit_mb=20480`). The cache itself is not the problem: 0.4 GB at 128K.
 
 The same Lightning sweep on oMLX (jundot/omlx 0de3b0ba, mlx 0.32.4, mlx-lm 0.32.3.dev, `mlx-community` 4-bit
-checkpoint, bf16 KV, no MTP head in that checkpoint, oMLX's native Metal kernels not built), one engine, 4 concurrent
+checkpoint, bf16 KV, no MTP head in that checkpoint), one engine, 4 concurrent
 requests, `results/results_omlx_lightning.jsonl`. llama.cpp figures are the fork in webAI with q8_0 KV and the MTP draft.
 Single natural-text prompts, prefill tok/s / first token / decode:
 
@@ -169,7 +169,9 @@ Both reject the turn that passes 262,144 tokens, the model's configured context.
 first tokens at 112, 339 and 343 s, decode 28 / 37 / 44 tok/s; the second and third prefilled together after the first,
 and decode was shared rather than starved. Free memory touched 0.1 GB during the 250K prefill (bf16 attention scores),
 no errors. Without its draft the fork decodes at 94 (2K) and 85 (22K words), so oMLX's lead at depth is the MLX attention
-path, not speculation; with a converted checkpoint oMLX can run Nemotron-H MTP as well.
+path, not speculation; with a converted checkpoint oMLX can run Nemotron-H MTP as well. oMLX's native Metal kernels
+made no difference for this model (2K 1393 / 127, 32K 1199 / 110, 100K 885 / 84 with them built); they target other
+architectures.
 
 Lightning's draft is accepted 68-77% of the time on natural text and 43-48% on the repeated-word load-test prompts,
 which is why the natural-text decode is higher. Without the draft it decodes at 94 (2K) and 85 (22K words). Its cache

@@ -5,3 +5,4 @@ pr/
 .remember/
 .DS_Store
 __pycache__/
+.semantex/
