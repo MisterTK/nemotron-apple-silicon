@@ -1,0 +1,64 @@
+{"tag": "omlx-lightning-bf16kv-natural", "prompt_tokens": 8267, "cached": 0, "gen": 256, "pp_tps": 1356.6, "tg_tps": 123.9, "ttft_s": 6.1, "wall_s": 8.2}
+{"tag": "omlx-lightning-bf16kv-natural", "prompt_tokens": 31985, "cached": 0, "gen": 256, "pp_tps": 1190.1, "tg_tps": 110.2, "ttft_s": 26.9, "wall_s": 29.2}
+{"tag": "omlx-lightning-bf16kv-natural", "prompt_tokens": 100148, "cached": 0, "gen": 256, "pp_tps": 875.5, "tg_tps": 83.8, "ttft_s": 114.4, "wall_s": 117.5}
+{"tag": "omlx-lightning-bf16kv-natural", "prompt_tokens": 150260, "cached": 0, "gen": 256, "pp_tps": 747.1, "tg_tps": 73.0, "ttft_s": 201.1, "wall_s": 204.7}
+{"tag": "omlx-lightning-bf16kv-natural", "prompt_tokens": 249883, "cached": 0, "gen": 256, "pp_tps": 564.5, "tg_tps": 57.7, "ttft_s": 442.6, "wall_s": 447.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 1, "history_tokens": 4653, "processed": 4653, "ttft_s": 4.23, "tg_tps": 123.8, "wall_s": 5.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 2, "history_tokens": 9230, "processed": 4583, "ttft_s": 3.59, "tg_tps": 121.6, "wall_s": 4.7}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 3, "history_tokens": 13671, "processed": 4447, "ttft_s": 3.68, "tg_tps": 119.5, "wall_s": 4.8}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 4, "history_tokens": 18496, "processed": 4831, "ttft_s": 4.22, "tg_tps": 116.8, "wall_s": 5.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 5, "history_tokens": 23087, "processed": 4597, "ttft_s": 4.43, "tg_tps": 114.7, "wall_s": 5.6}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 6, "history_tokens": 27722, "processed": 4641, "ttft_s": 4.41, "tg_tps": 112.3, "wall_s": 5.6}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 7, "history_tokens": 32553, "processed": 4837, "ttft_s": 4.8, "tg_tps": 110.1, "wall_s": 6.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 8, "history_tokens": 37011, "processed": 4464, "ttft_s": 4.88, "tg_tps": 107.0, "wall_s": 6.1}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 9, "history_tokens": 41583, "processed": 4578, "ttft_s": 5.11, "tg_tps": 105.3, "wall_s": 6.4}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 10, "history_tokens": 46371, "processed": 4794, "ttft_s": 5.34, "tg_tps": 103.5, "wall_s": 6.6}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 11, "history_tokens": 51091, "processed": 4726, "ttft_s": 5.5, "tg_tps": 100.1, "wall_s": 6.8}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 12, "history_tokens": 56099, "processed": 5014, "ttft_s": 6.17, "tg_tps": 99.9, "wall_s": 7.5}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 13, "history_tokens": 60583, "processed": 4490, "ttft_s": 5.64, "tg_tps": 98.0, "wall_s": 7.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 14, "history_tokens": 65090, "processed": 4513, "ttft_s": 5.74, "tg_tps": 96.5, "wall_s": 7.1}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 15, "history_tokens": 70000, "processed": 4916, "ttft_s": 6.55, "tg_tps": 93.0, "wall_s": 8.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 16, "history_tokens": 74664, "processed": 4670, "ttft_s": 6.36, "tg_tps": 91.2, "wall_s": 7.8}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 17, "history_tokens": 79733, "processed": 5075, "ttft_s": 7.06, "tg_tps": 90.2, "wall_s": 8.5}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 18, "history_tokens": 84189, "processed": 4462, "ttft_s": 6.72, "tg_tps": 88.3, "wall_s": 8.2}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 19, "history_tokens": 88790, "processed": 4607, "ttft_s": 7.11, "tg_tps": 87.3, "wall_s": 8.6}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 20, "history_tokens": 93713, "processed": 4929, "ttft_s": 7.56, "tg_tps": 86.3, "wall_s": 9.1}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 21, "history_tokens": 98215, "processed": 4508, "ttft_s": 7.38, "tg_tps": 84.7, "wall_s": 9.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 22, "history_tokens": 103217, "processed": 5008, "ttft_s": 8.33, "tg_tps": 84.0, "wall_s": 9.9}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 23, "history_tokens": 107675, "processed": 4464, "ttft_s": 7.44, "tg_tps": 82.4, "wall_s": 9.1}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 24, "history_tokens": 112264, "processed": 4595, "ttft_s": 7.87, "tg_tps": 81.1, "wall_s": 9.5}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 25, "history_tokens": 117171, "processed": 4913, "ttft_s": 8.67, "tg_tps": 80.1, "wall_s": 10.4}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 26, "history_tokens": 121612, "processed": 4447, "ttft_s": 8.0, "tg_tps": 79.4, "wall_s": 9.7}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 27, "history_tokens": 126559, "processed": 4953, "ttft_s": 8.98, "tg_tps": 78.4, "wall_s": 10.7}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 28, "history_tokens": 130947, "processed": 4394, "ttft_s": 8.28, "tg_tps": 76.2, "wall_s": 10.1}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 29, "history_tokens": 135632, "processed": 4691, "ttft_s": 9.25, "tg_tps": 75.6, "wall_s": 11.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 30, "history_tokens": 140522, "processed": 4896, "ttft_s": 9.54, "tg_tps": 74.5, "wall_s": 11.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 31, "history_tokens": 145014, "processed": 4498, "ttft_s": 9.01, "tg_tps": 74.5, "wall_s": 10.8}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 32, "history_tokens": 149960, "processed": 4952, "ttft_s": 10.24, "tg_tps": 72.9, "wall_s": 12.1}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 33, "history_tokens": 154318, "processed": 4364, "ttft_s": 9.14, "tg_tps": 71.9, "wall_s": 11.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 34, "history_tokens": 158875, "processed": 4563, "ttft_s": 9.7, "tg_tps": 71.0, "wall_s": 11.6}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 35, "history_tokens": 163874, "processed": 5005, "ttft_s": 10.99, "tg_tps": 70.8, "wall_s": 12.9}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 36, "history_tokens": 168375, "processed": 4507, "ttft_s": 10.07, "tg_tps": 69.2, "wall_s": 12.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 37, "history_tokens": 173252, "processed": 4883, "ttft_s": 10.97, "tg_tps": 68.5, "wall_s": 13.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 38, "history_tokens": 177641, "processed": 4395, "ttft_s": 10.21, "tg_tps": 67.5, "wall_s": 12.2}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 39, "history_tokens": 182128, "processed": 4493, "ttft_s": 10.52, "tg_tps": 67.8, "wall_s": 12.5}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 40, "history_tokens": 187148, "processed": 5026, "ttft_s": 12.22, "tg_tps": 67.0, "wall_s": 14.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 41, "history_tokens": 191645, "processed": 4503, "ttft_s": 10.9, "tg_tps": 64.7, "wall_s": 13.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 42, "history_tokens": 196509, "processed": 4870, "ttft_s": 12.01, "tg_tps": 63.9, "wall_s": 14.2}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 43, "history_tokens": 200937, "processed": 4434, "ttft_s": 11.6, "tg_tps": 64.0, "wall_s": 13.7}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 44, "history_tokens": 205292, "processed": 4361, "ttft_s": 11.35, "tg_tps": 63.3, "wall_s": 13.5}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 45, "history_tokens": 210426, "processed": 5140, "ttft_s": 13.25, "tg_tps": 62.5, "wall_s": 15.4}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 46, "history_tokens": 214865, "processed": 4445, "ttft_s": 11.84, "tg_tps": 62.8, "wall_s": 14.0}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 47, "history_tokens": 219603, "processed": 4744, "ttft_s": 13.04, "tg_tps": 61.4, "wall_s": 15.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 48, "history_tokens": 224160, "processed": 4563, "ttft_s": 12.4, "tg_tps": 60.7, "wall_s": 14.7}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 49, "history_tokens": 228504, "processed": 4350, "ttft_s": 12.09, "tg_tps": 60.0, "wall_s": 14.4}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 50, "history_tokens": 233647, "processed": 5149, "ttft_s": 14.56, "tg_tps": 59.2, "wall_s": 16.9}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 51, "history_tokens": 238111, "processed": 4470, "ttft_s": 13.01, "tg_tps": 59.7, "wall_s": 15.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 52, "history_tokens": 242904, "processed": 4799, "ttft_s": 13.96, "tg_tps": 58.2, "wall_s": 16.3}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 53, "history_tokens": 247480, "processed": 4582, "ttft_s": 13.5, "tg_tps": 57.6, "wall_s": 15.9}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 54, "history_tokens": 251851, "processed": 4377, "ttft_s": 13.45, "tg_tps": 56.6, "wall_s": 15.9}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 55, "history_tokens": 256956, "processed": 5111, "ttft_s": 15.76, "tg_tps": 56.5, "wall_s": 18.2}
+{"tag": "omlx-lightning-bf16kv-session", "turn": 56, "history_tokens": 261463, "processed": 4513, "ttft_s": 13.9, "tg_tps": 56.7, "wall_s": 16.3}
+{"tag": "omlx-lightning-bf16kv-3concurrent", "prompt_tokens": 100153, "cached": 0, "gen": 256, "pp_tps": 892.2, "tg_tps": 27.6, "ttft_s": 112.2, "wall_s": 121.7}
+{"tag": "omlx-lightning-bf16kv-3concurrent", "prompt_tokens": 100148, "cached": 0, "gen": 256, "pp_tps": 295.0, "tg_tps": 36.8, "ttft_s": 339.4, "wall_s": 346.6}
+{"tag": "omlx-lightning-bf16kv-3concurrent", "prompt_tokens": 100151, "cached": 0, "gen": 256, "pp_tps": 292.2, "tg_tps": 43.7, "ttft_s": 342.7, "wall_s": 348.8}

@@ -141,6 +141,36 @@ On a 24 GB machine the 17.6 GB weights plus the 1.1 GB draft are close to the GP
 fails or decode falls far below the figures above, drop `--draft` first (decode was 94 instead of 102 without it here),
 then raise the wired limit (`sudo sysctl iogpu.wired_limit_mb=20480`). The cache itself is not the problem: 0.4 GB at 128K.
 
+The same Lightning sweep on oMLX (jundot/omlx 0de3b0ba, mlx 0.32.4, mlx-lm 0.32.3.dev, `mlx-community` 4-bit
+checkpoint, bf16 KV, no MTP head in that checkpoint, oMLX's native Metal kernels not built), one engine, 4 concurrent
+requests, `results/results_omlx_lightning.jsonl`. llama.cpp figures are the fork in webAI with q8_0 KV and the MTP draft.
+Single natural-text prompts, prefill tok/s / first token / decode:
+
+| prompt | oMLX | llama.cpp fork |
+|---|---|---|
+| 2K | 1170 / 1.6 s / 128 | 460 / 1.6 s / 102 |
+| 8K | 1357 / 6.1 s / 124 | 1083 / 7.7 s / 137 |
+| 32K | 1190 / 27 s / 110 | 937 / 34 s / 104 |
+| 100K | 876 / 114 s / 84 | 668 / 150 s / 69 |
+| 150K | 747 / 201 s / 73 | 535 / 281 s / 49 |
+| 250K | 565 / 443 s / 58 | 371 / 674 s / 44 |
+
+Growing session, first token / decode per turn:
+
+| history | oMLX | llama.cpp fork |
+|---|---|---|
+| 4K | 4.2 s / 124 | 3.8 s / 129 |
+| 60K | 5.6 s / 98 | 7.1 s / 76 |
+| 135K | 9.3 s / 76 | 12.0 s / 59 |
+| 210K | 13.3 s / 63 | 19.2 s / 43 |
+| 257K | 15.8 s / 57 | 23.6 s / 37 |
+
+Both reject the turn that passes 262,144 tokens, the model's configured context. Three 100K prompts at once on oMLX:
+first tokens at 112, 339 and 343 s, decode 28 / 37 / 44 tok/s; the second and third prefilled together after the first,
+and decode was shared rather than starved. Free memory touched 0.1 GB during the 250K prefill (bf16 attention scores),
+no errors. Without its draft the fork decodes at 94 (2K) and 85 (22K words), so oMLX's lead at depth is the MLX attention
+path, not speculation; with a converted checkpoint oMLX can run Nemotron-H MTP as well.
+
 Lightning's draft is accepted 68-77% of the time on natural text and 43-48% on the repeated-word load-test prompts,
 which is why the natural-text decode is higher. Without the draft it decodes at 94 (2K) and 85 (22K words). Its cache
 is 3.2 KB per token at q8_0 (6 attention layers), 0.4 GB per 128K slot; native context is 1M tokens.
